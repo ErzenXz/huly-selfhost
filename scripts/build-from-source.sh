@@ -75,14 +75,23 @@ if [[ -n "$REPO" ]]; then
   if [[ -d "$PLATFORM_DIR/.git" ]]; then
     echo "Updating existing clone at $PLATFORM_DIR"
     git -C "$PLATFORM_DIR" fetch --all --tags
+    echo "Syncing and updating git submodules (recursive)"
+    git -C "$PLATFORM_DIR" submodule sync --recursive || true
+    git -C "$PLATFORM_DIR" submodule update --init --recursive --jobs 4 || true
   else
     echo "Cloning $REPO into $PLATFORM_DIR"
     git clone "$REPO" "$PLATFORM_DIR"
+    echo "Initializing git submodules (recursive)"
+    git -C "$PLATFORM_DIR" submodule sync --recursive || true
+    git -C "$PLATFORM_DIR" submodule update --init --recursive --jobs 4 || true
   fi
   if [[ -n "$REF" ]]; then
     echo "Checking out $REF"
     git -C "$PLATFORM_DIR" checkout "$REF"
     git -C "$PLATFORM_DIR" pull --ff-only || true
+    echo "Refreshing submodules after checkout"
+    git -C "$PLATFORM_DIR" submodule sync --recursive || true
+    git -C "$PLATFORM_DIR" submodule update --init --recursive --jobs 4 || true
   fi
 else
   PLATFORM_DIR="$(cd "$LOCAL_PATH" && pwd)"
