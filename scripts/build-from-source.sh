@@ -156,37 +156,51 @@ ensure_bundle_if_needed() {
   fi
 
   echo "bundle/bundle.js not found in $context; attempting to build the pod"
-  local pm
-  pm="$(choose_package_manager "$context")"
+  # Prefer Rush targeted build for pods when available
+  if [[ -f "$PLATFORM_DIR/rush.json" ]]; then
+    local pod_name
+    pod_name="$(basename "$context")"
+    local rush_project="@hcengineering/pod-${pod_name}"
+    pushd "$PLATFORM_DIR" >/dev/null
+    npx -y @microsoft/rush build -t "$rush_project" || true
+    popd >/dev/null
+    pushd "$context" >/dev/null
+    npx -y @microsoft/rushx bundle || true
+    popd >/dev/null
+  else
+    # Fallback: try building with the detected package manager
+    local pm
+    pm="$(choose_package_manager "$context")"
 
-  # Enable corepack for pnpm/yarn if available
-  if command -v corepack >/dev/null 2>&1; then
-    corepack enable >/dev/null 2>&1 || true
-    if [[ "$pm" == "pnpm" ]]; then
-      corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
-    elif [[ "$pm" == "yarn" ]]; then
-      corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+    # Enable corepack for pnpm/yarn if available
+    if command -v corepack >/dev/null 2>&1; then
+      corepack enable >/dev/null 2>&1 || true
+      if [[ "$pm" == "pnpm" ]]; then
+        corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+      elif [[ "$pm" == "yarn" ]]; then
+        corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+      fi
     fi
-  fi
 
-  pushd "$context" >/dev/null
-  export CI=1
-  export NODE_OPTIONS="--max-old-space-size=4096"
-  case "$pm" in
-    pnpm)
-      (pnpm install --frozen-lockfile || pnpm install) || true
-      (pnpm run build || pnpm run bundle) || true
-      ;;
-    yarn)
-      (yarn install --frozen-lockfile || yarn install) || true
-      (yarn build || yarn bundle) || true
-      ;;
-    npm)
-      (npm ci || npm install --no-audit --no-fund) || true
-      (npm run build || npm run bundle) || true
-      ;;
-  esac
-  popd >/dev/null
+    pushd "$context" >/dev/null
+    export CI=1
+    export NODE_OPTIONS="--max-old-space-size=4096"
+    case "$pm" in
+      pnpm)
+        (pnpm install --frozen-lockfile || pnpm install) || true
+        (pnpm run build || pnpm run bundle) || true
+        ;;
+      yarn)
+        (yarn install --frozen-lockfile || yarn install) || true
+        (yarn build || yarn bundle) || true
+        ;;
+      npm)
+        (npm ci || npm install --no-audit --no-fund) || true
+        (npm run build || npm run bundle) || true
+        ;;
+    esac
+    popd >/dev/null
+  fi
 
   # If still missing, try to locate a bundle.js somewhere under context and link/copy it
   if [[ ! -f "$context/bundle/bundle.js" ]]; then
