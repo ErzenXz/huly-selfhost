@@ -122,7 +122,9 @@ if command -v rush >/dev/null 2>&1; then
   fi
 fi
 
-# Fallback: attempt to build images from known service subfolders
+#!/usr/bin/env bash
+
+# Fallback: attempt to build images from known service subfolders, with discovery
 declare -A SERVICE_PATHS
 SERVICE_PATHS[
   account
@@ -155,16 +157,64 @@ SERVICE_PATHS[
   aibot
 ]=services/ai-bot
 
+discover_context_for_service() {
+  local svc="$1"
+  local preset_path="${SERVICE_PATHS[$svc]:-}"
+  if [[ -n "$preset_path" && -f "$PLATFORM_DIR/$preset_path/Dockerfile" ]]; then
+    echo "$PLATFORM_DIR/$preset_path"
+    return 0
+  fi
+
+  # Build a list of aliases/patterns to search for
+  local patterns=("$svc")
+  case "$svc" in
+    aibot) patterns=("aibot" "ai-bot") ;;
+    front) patterns=("front" "frontend") ;;
+    stats) patterns=("stats" "statistics") ;;
+    fulltext) patterns=("fulltext" "full-text") ;;
+  esac
+
+  # Collect all directories that contain a Dockerfile
+  mapfile -t dockerfile_dirs < <(find "$PLATFORM_DIR" -type f -name Dockerfile -printf '%h\n' | sort -u)
+  if [[ ${#dockerfile_dirs[@]} -eq 0 ]]; then
+    return 1
+  fi
+
+  # Prefer paths under apps/ or services/ if present
+  local candidates=()
+  for dir in "${dockerfile_dirs[@]}"; do
+    candidates+=("$dir")
+  done
+
+  # Match first directory whose path contains one of the patterns
+  for pat in "${patterns[@]}"; do
+    for dir in "${candidates[@]}"; do
+      if echo "$dir" | grep -Eiq "/${pat}(/|$)"; then
+        echo "$dir"
+        return 0
+      fi
+    done
+  done
+
+  # As a last resort, looser match anywhere in the path
+  for pat in "${patterns[@]}"; do
+    for dir in "${candidates[@]}"; do
+      if echo "$dir" | grep -Eiq "${pat}"; then
+        echo "$dir"
+        return 0
+      fi
+    done
+  done
+
+  return 1
+}
+
 IMAGES_FILE="${ROOT_DIR}/.images.conf"
 > "$IMAGES_FILE"
 
 for svc in account front collaborator transactor workspace fulltext stats rekoni love aibot; do
-  subdir="${SERVICE_PATHS[$svc]:-}"
-  if [[ -z "$subdir" ]]; then
-    continue
-  fi
-  context="$PLATFORM_DIR/$subdir"
-  if [[ -f "$context/Dockerfile" ]]; then
+  context="$(discover_context_for_service "$svc" || true)"
+  if [[ -n "$context" && -f "$context/Dockerfile" ]]; then
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
     echo "Building $svc from $context as $tag_base"
     docker build -t "$tag_base" "$context"
@@ -181,7 +231,7 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
       aibot)     echo "IMAGE_AIBOT=$tag_base" >> "$IMAGES_FILE" ;;
     esac
   else
-    echo "Skipping $svc (no Dockerfile at $context)"
+    echo "Skipping $svc (no Dockerfile found)"
   fi
 done
 
