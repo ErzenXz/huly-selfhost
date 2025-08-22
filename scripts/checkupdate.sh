@@ -10,6 +10,11 @@ if [[ ! -f "$STATE_FILE" ]]; then
   exit 2
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  echo "jq is required for checkupdate.sh. Install jq and retry (e.g., apt-get install -y jq)." >&2
+  exit 3
+fi
+
 REPO=$(jq -r '.repo // empty' "$STATE_FILE" 2>/dev/null || echo "")
 LOCAL_PATH=$(jq -r '.path // empty' "$STATE_FILE" 2>/dev/null || echo "")
 REF=$(jq -r '.ref // empty' "$STATE_FILE" 2>/dev/null || echo "")

@@ -41,7 +41,7 @@ REGISTRY_PREFIX=$(jq -r '.registryPrefix // empty' "$STATE_FILE" 2>/dev/null || 
 
 if [[ -n "$REPO" ]]; then
   echo "Fetching latest from $REPO ${REF:+(ref: $REF)}"
-  if ! scripts/checkupdate.sh; then
+  if ! bash scripts/checkupdate.sh; then
     echo "Updates found; proceeding to rebuild"
   else
     echo "No updates; rebuilding anyway (cache may apply)"
