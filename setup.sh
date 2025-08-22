@@ -104,7 +104,7 @@ if [[ -n "$BUILD_REPO" || -n "$BUILD_PATH" ]]; then
     if [[ -n "$BUILD_REGISTRY_PREFIX" ]]; then
         BUILD_ARGS+=("--registry" "$BUILD_REGISTRY_PREFIX")
     fi
-    scripts/build-from-source.sh "${BUILD_ARGS[@]}"
+    bash scripts/build-from-source.sh "${BUILD_ARGS[@]}"
     if [[ -f .images.conf ]]; then
         echo "Loading built image overrides from .images.conf"
         set -a
