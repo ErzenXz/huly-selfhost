@@ -127,6 +127,83 @@ if [[ -f "rush.json" ]]; then
   npx -y @microsoft/rush build
 fi
 
+# Helper: choose a package manager based on lockfiles
+choose_package_manager() {
+  local dir="$1"
+  if [[ -f "$dir/pnpm-lock.yaml" || -f "$PLATFORM_DIR/pnpm-lock.yaml" ]]; then
+    echo pnpm
+    return
+  fi
+  if [[ -f "$dir/yarn.lock" || -f "$PLATFORM_DIR/yarn.lock" ]]; then
+    echo yarn
+    return
+  fi
+  echo npm
+}
+
+# Helper: ensure bundle/bundle.js exists for a given context if Dockerfile expects it
+ensure_bundle_if_needed() {
+  local context="$1"
+  local dockerfile="$context/Dockerfile"
+  if [[ ! -f "$dockerfile" ]]; then
+    return 0
+  fi
+  if ! grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then
+    return 0
+  fi
+  if [[ -f "$context/bundle/bundle.js" ]]; then
+    return 0
+  fi
+
+  echo "bundle/bundle.js not found in $context; attempting to build the pod"
+  local pm
+  pm="$(choose_package_manager "$context")"
+
+  # Enable corepack for pnpm/yarn if available
+  if command -v corepack >/dev/null 2>&1; then
+    corepack enable >/dev/null 2>&1 || true
+    if [[ "$pm" == "pnpm" ]]; then
+      corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+    elif [[ "$pm" == "yarn" ]]; then
+      corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+    fi
+  fi
+
+  pushd "$context" >/dev/null
+  export CI=1
+  export NODE_OPTIONS="--max-old-space-size=4096"
+  case "$pm" in
+    pnpm)
+      (pnpm install --frozen-lockfile || pnpm install) || true
+      (pnpm run build || pnpm run bundle) || true
+      ;;
+    yarn)
+      (yarn install --frozen-lockfile || yarn install) || true
+      (yarn build || yarn bundle) || true
+      ;;
+    npm)
+      (npm ci || npm install --no-audit --no-fund) || true
+      (npm run build || npm run bundle) || true
+      ;;
+  esac
+  popd >/dev/null
+
+  # If still missing, try to locate a bundle.js somewhere under context and link/copy it
+  if [[ ! -f "$context/bundle/bundle.js" ]]; then
+    mapfile -t found_bundle < <(find "$context" -type f -name bundle.js | head -n 1)
+    if [[ ${#found_bundle[@]} -gt 0 ]]; then
+      mkdir -p "$context/bundle"
+      cp -f "${found_bundle[0]}" "$context/bundle/bundle.js" || true
+    fi
+  fi
+
+  if [[ ! -f "$context/bundle/bundle.js" ]]; then
+    echo "Warning: Could not produce $context/bundle/bundle.js. Skipping local build for this service."
+    return 1
+  fi
+  return 0
+}
+
 #!/usr/bin/env bash
 
 # Fallback: attempt to build images from known service subfolders, with discovery
@@ -220,6 +297,10 @@ IMAGES_FILE="${ROOT_DIR}/.images.conf"
 for svc in account front collaborator transactor workspace fulltext stats rekoni love aibot; do
   context="$(discover_context_for_service "$svc" || true)"
   if [[ -n "$context" && -f "$context/Dockerfile" ]]; then
+    ensure_bundle_if_needed "$context" || {
+      echo "Skipping $svc due to missing required bundle."
+      continue
+    }
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
     echo "Building $svc from $context as $tag_base"
     docker build -t "$tag_base" "$context"
