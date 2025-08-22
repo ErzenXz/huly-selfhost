@@ -7,6 +7,10 @@ CONFIG_FILE="huly.conf"
 # Parse command line arguments
 RESET_VOLUMES=false
 SECRET=false
+BUILD_REPO=""
+BUILD_PATH=""
+BUILD_REF=""
+BUILD_REGISTRY_PREFIX=""
 
 for arg in "$@"; do
     case $arg in
@@ -16,11 +20,43 @@ for arg in "$@"; do
         --reset-volumes)
             RESET_VOLUMES=true
             ;;
+        --build-from-repo=*)
+            BUILD_REPO="${arg#*=}"
+            ;;
+        --build-from-repo)
+            shift
+            BUILD_REPO="$1"
+            ;;
+        --build-from-path=*)
+            BUILD_PATH="${arg#*=}"
+            ;;
+        --build-from-path)
+            shift
+            BUILD_PATH="$1"
+            ;;
+        --build-ref=*)
+            BUILD_REF="${arg#*=}"
+            ;;
+        --build-ref)
+            shift
+            BUILD_REF="$1"
+            ;;
+        --build-registry=*)
+            BUILD_REGISTRY_PREFIX="${arg#*=}"
+            ;;
+        --build-registry)
+            shift
+            BUILD_REGISTRY_PREFIX="$1"
+            ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
             echo "  --secret         Generate a new secret key"
             echo "  --reset-volumes  Reset all volume paths to default Docker named volumes"
+            echo "  --build-from-repo <URL>  Clone and build images from repository"
+            echo "  --build-from-path <DIR>  Use local path to build images"
+            echo "  --build-ref <REF>        Git ref (branch/tag/commit) when using --build-from-repo"
+            echo "  --build-registry <PREFIX> Optional registry/user prefix for built images"
             echo "  --help           Show this help message"
             exit 0
             ;;
@@ -44,6 +80,33 @@ fi
 
 if [ -f "$CONFIG_FILE" ]; then
     source "$CONFIG_FILE"
+fi
+
+# If user requested to build images from source, run the builder
+if [[ -n "$BUILD_REPO" || -n "$BUILD_PATH" ]]; then
+    echo -e "\n\033[1;34mBuilding images from source...\033[0m"
+    BUILD_ARGS=()
+    if [[ -n "$BUILD_REPO" ]]; then
+        BUILD_ARGS+=("--repo" "$BUILD_REPO")
+    fi
+    if [[ -n "$BUILD_PATH" ]]; then
+        BUILD_ARGS+=("--path" "$BUILD_PATH")
+    fi
+    if [[ -n "$BUILD_REF" ]]; then
+        BUILD_ARGS+=("--ref" "$BUILD_REF")
+    fi
+    if [[ -n "$BUILD_REGISTRY_PREFIX" ]]; then
+        BUILD_ARGS+=("--registry" "$BUILD_REGISTRY_PREFIX")
+    fi
+    scripts/build-from-source.sh "${BUILD_ARGS[@]}"
+    if [[ -f .images.conf ]]; then
+        echo "Loading built image overrides from .images.conf"
+        set -a
+        source ./.images.conf
+        set +a
+    else
+        echo "Warning: .images.conf not found after build; proceeding with default images"
+    fi
 fi
 
 while true; do
@@ -169,6 +232,31 @@ export VOLUME_ELASTIC_PATH=$_VOLUME_ELASTIC_PATH
 export VOLUME_FILES_PATH=$_VOLUME_FILES_PATH
 export HULY_SECRET=$(cat .huly.secret)
 
+# Optional services configuration prompts
+echo -e "\n\033[1;34mOptional services configuration:\033[0m"
+
+read -p "Enable AI Bot service? (y/N): " _ENABLE_AIBOT
+if [[ "${_ENABLE_AIBOT,,}" == "y" ]]; then
+  read -p "OPENAI_API_KEY (leave empty to set later): " _OPENAI_API_KEY
+  read -p "OPENAI_BASE_URL (optional): " _OPENAI_BASE_URL
+  read -p "AI Bot password (for service account): " _AI_BOT_PASSWORD
+  export OPENAI_API_KEY="${_OPENAI_API_KEY}"
+  export OPENAI_BASE_URL="${_OPENAI_BASE_URL}"
+  export AI_BOT_PASSWORD="${_AI_BOT_PASSWORD}"
+  export AI_URL="http${_SECURE:+s}://${_HOST_ADDRESS}/aibot"
+  export AI_BOT_URL="http://aibot:4010"
+fi
+
+read -p "Enable Love (LiveKit) service? (y/N): " _ENABLE_LOVE
+if [[ "${_ENABLE_LOVE,,}" == "y" ]]; then
+  read -p "LIVEKIT_HOST (e.g., wss://your.livekit.host): " _LIVEKIT_HOST
+  read -p "LIVEKIT_API_KEY: " _LIVEKIT_API_KEY
+  read -p "LIVEKIT_API_SECRET: " _LIVEKIT_API_SECRET
+  export LIVEKIT_HOST="${_LIVEKIT_HOST}"
+  export LIVEKIT_API_KEY="${_LIVEKIT_API_KEY}"
+  export LIVEKIT_API_SECRET="${_LIVEKIT_API_SECRET}"
+fi
+
 envsubst < .template.huly.conf > $CONFIG_FILE
 
 echo -e "\n\033[1;34mConfiguration Summary:\033[0m"
@@ -187,7 +275,11 @@ read -p "Do you want to run 'docker compose up -d' now to start Huly? (Y/n): " R
 case "${RUN_DOCKER:-Y}" in
     [Yy]* )
          echo -e "\033[1;32mRunning 'docker compose up -d' now...\033[0m"
-         docker compose up -d
+         if [[ -f .images.conf ]]; then
+           docker compose --env-file .images.conf up -d
+         else
+           docker compose up -d
+         fi
          ;;
     [Nn]* )
         echo "You can run 'docker compose up -d' later to start Huly."

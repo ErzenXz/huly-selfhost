@@ -61,6 +61,87 @@ sudo docker compose up -d
 
 Now, launch your web browser and enjoy Huly!
 
+## Build images from source (optional)
+
+If you prefer to build the Docker images yourself from the Huly source repo and run them locally:
+
+1) Build images and generate `.images.conf` with overrides
+
+```bash
+# Build from a remote repository and optional ref (branch/tag/commit)
+./scripts/build-from-source.sh --repo https://github.com/hcengineering/platform.git --ref v0.6.502
+
+# Or build from a local checkout
+./scripts/build-from-source.sh --path /path/to/platform
+
+# Optionally add a registry/user prefix for tags (e.g., ghcr.io/you or your-dockerhub-user)
+./scripts/build-from-source.sh --path /path/to/platform --registry youruser
+```
+
+This writes `.images.conf` in the repository root that looks like:
+
+```bash
+IMAGE_ACCOUNT=huly/account:local
+IMAGE_FRONT=huly/front:local
+# ...etc for all services that were built
+```
+
+2) Start with your built images
+
+```bash
+docker compose --env-file .images.conf up -d
+```
+
+You can also run the setup and build in one go:
+
+```bash
+./setup.sh --build-from-repo https://github.com/hcengineering/platform.git --build-ref v0.6.502
+```
+
+### Kubernetes: apply built images
+
+If you deploy via Kubernetes, after applying the manifests you can set images to your builds:
+
+```bash
+# Apply base manifests
+kubectl apply -R -f kube/
+
+# Then set images from the local overrides file
+kube/scripts/set-images.sh --env-file .images.conf --namespace default
+```
+
+### Check for updates and auto-update
+
+After your first build-from-source run, the source info is saved to `.build-source.json`.
+
+Check if the upstream repo has updates:
+
+```bash
+./scripts/checkupdate.sh
+```
+
+Update: pull latest from the recorded source, rebuild images, and restart services:
+
+```bash
+./scripts/update.sh
+```
+
+## Optional services
+
+### Love (Audio & Video via LiveKit)
+1. Enable during setup when prompted, or set environment variables in `compose.yml`:
+   - `LIVEKIT_HOST`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
+2. The `front` service already includes `LOVE_ENDPOINT=http(s)://<HOST_ADDRESS>/_love`.
+3. Start services; `love` container is included as optional in `compose.yml`.
+
+### AI Bot
+1. Enable during setup when prompted, or set envs:
+   - `OPENAI_API_KEY`, `OPENAI_BASE_URL` (optional), `AI_BOT_PASSWORD`
+2. `front` will use `AI_URL` and `transactor` uses `AI_BOT_URL`.
+3. Start services; `aibot` container is included as optional in `compose.yml`.
+
+If you manage secrets separately, you can export them before running `./setup.sh`, or edit `huly.conf` after setup and rerun `./nginx.sh` then `docker compose up -d`.
+
 ## Volume Configuration
 
 By default, Huly uses Docker named volumes to store persistent data (database, Elasticsearch indices, and uploaded files). You can optionally configure custom host paths for these volumes during the setup process.

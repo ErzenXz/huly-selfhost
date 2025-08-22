@@ -45,7 +45,7 @@ services:
     restart: unless-stopped
 
   rekoni:
-    image: hardcoreeng/rekoni-service:${HULY_VERSION}
+    image: ${IMAGE_REKONI:-hardcoreeng/rekoni-service:${HULY_VERSION}}
     environment:
       - SECRET=${SECRET}
     deploy:
@@ -55,7 +55,7 @@ services:
     restart: unless-stopped
 
   transactor:
-    image: hardcoreeng/transactor:${HULY_VERSION}
+    image: ${IMAGE_TRANSACTOR:-hardcoreeng/transactor:${HULY_VERSION}}
     environment:
       - SERVER_PORT=3333
       - SERVER_SECRET=${SECRET}
@@ -68,10 +68,11 @@ services:
       - FULLTEXT_URL=http://fulltext:4700
       - STATS_URL=http://stats:4900
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
+      - AI_BOT_URL=${AI_BOT_URL:-}
     restart: unless-stopped
 
   collaborator:
-    image: hardcoreeng/collaborator:${HULY_VERSION}
+    image: ${IMAGE_COLLABORATOR:-hardcoreeng/collaborator:${HULY_VERSION}}
     environment:
       - COLLABORATOR_PORT=3078
       - SECRET=${SECRET}
@@ -82,7 +83,7 @@ services:
     restart: unless-stopped
 
   account:
-    image: hardcoreeng/account:${HULY_VERSION}
+    image: ${IMAGE_ACCOUNT:-hardcoreeng/account:${HULY_VERSION}}
     environment:
       - SERVER_PORT=3000
       - SERVER_SECRET=${SECRET}
@@ -98,7 +99,7 @@ services:
     restart: unless-stopped
 
   workspace:
-    image: hardcoreeng/workspace:${HULY_VERSION}
+    image: ${IMAGE_WORKSPACE:-hardcoreeng/workspace:${HULY_VERSION}}
     environment:
       - SERVER_SECRET=${SECRET}
       - DB_URL=mongodb://mongodb:27017
@@ -111,7 +112,7 @@ services:
     restart: unless-stopped
 
   front:
-    image: hardcoreeng/front:${HULY_VERSION}
+    image: ${IMAGE_FRONT:-hardcoreeng/front:${HULY_VERSION}}
     environment:
       - SERVER_PORT=8080
       - SERVER_SECRET=${SECRET}
@@ -132,10 +133,11 @@ services:
       - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
       - DESKTOP_UPDATES_CHANNEL=selfhost
+      - AI_URL=${AI_URL:-}
     restart: unless-stopped
 
   fulltext:
-    image: hardcoreeng/fulltext:${HULY_VERSION}
+    image: ${IMAGE_FULLTEXT:-hardcoreeng/fulltext:${HULY_VERSION}}
     environment:
       - SERVER_SECRET=${SECRET}
       - DB_URL=mongodb://mongodb:27017
@@ -148,10 +150,52 @@ services:
     restart: unless-stopped
 
   stats:
-    image: hardcoreeng/stats:${HULY_VERSION}
+    image: ${IMAGE_STATS:-hardcoreeng/stats:${HULY_VERSION}}
     environment:
       - PORT=4900
       - SERVER_SECRET=${SECRET}
+    restart: unless-stopped
+
+  # Optional: Love (audio/video calls via LiveKit)
+  love:
+    image: ${IMAGE_LOVE:-hardcoreeng/love:${HULY_VERSION}}
+    profiles:
+      - love
+    ports:
+      - 8096:8096
+    environment:
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - SECRET=${SECRET}
+      - ACCOUNTS_URL=http://account:3000
+      - DB_URL=mongodb://mongodb:27017
+      - MONGO_URL=mongodb://mongodb:27017
+      - STORAGE_PROVIDER_NAME=minio
+      - PORT=8096
+      - LIVEKIT_HOST=${LIVEKIT_HOST:-}
+      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-}
+      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-}
+    restart: unless-stopped
+
+  # Optional: AI Bot
+  aibot:
+    image: ${IMAGE_AIBOT:-hardcoreeng/ai-bot:${HULY_VERSION}}
+    profiles:
+      - aibot
+    ports:
+      - 4010:4010
+    environment:
+      - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
+      - SERVER_SECRET=${SECRET}
+      - ACCOUNTS_URL=http://account:3000
+      - DB_URL=mongodb://mongodb:27017
+      - MONGO_URL=mongodb://mongodb:27017
+      - STATS_URL=http://stats:4900
+      - FIRST_NAME=${AI_BOT_FIRST_NAME:-Bot}
+      - LAST_NAME=${AI_BOT_LAST_NAME:-Huly AI}
+      - PASSWORD=${AI_BOT_PASSWORD:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LOVE_ENDPOINT=http://love:8096
     restart: unless-stopped
 volumes:
   # These named volumes are used when custom volume paths are not specified
