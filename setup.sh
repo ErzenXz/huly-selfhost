@@ -12,56 +12,62 @@ BUILD_PATH=""
 BUILD_REF=""
 BUILD_REGISTRY_PREFIX=""
 
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --secret)
             SECRET=true
+            shift
             ;;
         --reset-volumes)
             RESET_VOLUMES=true
+            shift
             ;;
         --build-from-repo=*)
-            BUILD_REPO="${arg#*=}"
+            BUILD_REPO="${1#*=}"
+            shift
             ;;
         --build-from-repo)
-            shift
-            BUILD_REPO="$1"
+            BUILD_REPO="$2"
+            shift 2
             ;;
         --build-from-path=*)
-            BUILD_PATH="${arg#*=}"
+            BUILD_PATH="${1#*=}"
+            shift
             ;;
         --build-from-path)
-            shift
-            BUILD_PATH="$1"
+            BUILD_PATH="$2"
+            shift 2
             ;;
         --build-ref=*)
-            BUILD_REF="${arg#*=}"
+            BUILD_REF="${1#*=}"
+            shift
             ;;
         --build-ref)
-            shift
-            BUILD_REF="$1"
+            BUILD_REF="$2"
+            shift 2
             ;;
         --build-registry=*)
-            BUILD_REGISTRY_PREFIX="${arg#*=}"
+            BUILD_REGISTRY_PREFIX="${1#*=}"
+            shift
             ;;
         --build-registry)
-            shift
-            BUILD_REGISTRY_PREFIX="$1"
+            BUILD_REGISTRY_PREFIX="$2"
+            shift 2
             ;;
         --help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --secret         Generate a new secret key"
-            echo "  --reset-volumes  Reset all volume paths to default Docker named volumes"
-            echo "  --build-from-repo <URL>  Clone and build images from repository"
-            echo "  --build-from-path <DIR>  Use local path to build images"
-            echo "  --build-ref <REF>        Git ref (branch/tag/commit) when using --build-from-repo"
-            echo "  --build-registry <PREFIX> Optional registry/user prefix for built images"
-            echo "  --help           Show this help message"
+            echo "  --secret                    Generate a new secret key"
+            echo "  --reset-volumes             Reset all volume paths to default Docker named volumes"
+            echo "  --build-from-repo <URL>     Clone and build images from repository"
+            echo "  --build-from-path <DIR>     Use local path to build images"
+            echo "  --build-ref <REF>           Git ref (branch/tag/commit) when using --build-from-repo"
+            echo "  --build-registry <PREFIX>   Optional registry/user prefix for built images"
+            echo "  --help                      Show this help message"
             exit 0
             ;;
         *)
-            echo "Unknown option: $arg"
+            echo "Unknown option: $1"
             echo "Use --help for usage information"
             exit 1
             ;;
