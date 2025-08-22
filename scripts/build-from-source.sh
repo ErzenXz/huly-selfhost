@@ -104,22 +104,18 @@ cat > "$STATE_FILE" <<JSON
 }
 JSON
 
-# Build images using Rush if available, otherwise try docker build for known services.
+# Build workspace if repo is Rush-based so pod bundles exist for Dockerfiles (e.g. pods/*/bundle)
 pushd "$PLATFORM_DIR" >/dev/null
 
-if command -v rush >/dev/null 2>&1; then
-  echo "Running rush docker:build (if defined)"
-  if npm run -s | grep -q "docker:build" 2>/dev/null || rush list >/dev/null 2>&1; then
-    # Try common monorepo target; users can customize if needed
-    npx -y @microsoft/rush list >/dev/null 2>&1 || true
-    npx -y @microsoft/rush purge || true
-    npx -y @microsoft/rush install
-    npx -y @microsoft/rush build
-    # If repo provides a dev command to build images, try it
-    if npx -y @microsoft/rush list-projects 2>/dev/null | grep -qi "docker"; then
-      true
-    fi
+if [[ -f "rush.json" ]]; then
+  echo "Detected rush.json; installing dependencies and building the monorepo"
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "Error: npm not found. Please install Node.js (>=18) and npm, then rerun." >&2
+    exit 1
   fi
+  npx -y @microsoft/rush purge || true
+  npx -y @microsoft/rush install
+  npx -y @microsoft/rush build
 fi
 
 #!/usr/bin/env bash
