@@ -18,18 +18,48 @@ LOCAL_PATH=""
 REGISTRY_PREFIX=""
 STATE_FILE="${ROOT_DIR}/.build-source.json"
 
-for arg in "$@"; do
-  case $arg in
-    --repo=*) REPO="${arg#*=}" ;;
-    --repo) shift; REPO="$1" ; shift ;;
-    --path=*) LOCAL_PATH="${arg#*=}" ;;
-    --path) shift; LOCAL_PATH="$1" ; shift ;;
-    --ref=*) REF="${arg#*=}" ;;
-    --ref) shift; REF="$1" ; shift ;;
-    --registry=*) REGISTRY_PREFIX="${arg#*=}" ;;
-    --registry) shift; REGISTRY_PREFIX="$1" ; shift ;;
-    --help) echo "Usage: $0 [--repo URL|--path DIR] [--ref REF] [--registry PREFIX]"; exit 0 ;;
-    *) echo "Unknown option: $arg"; exit 1 ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --repo=*)
+      REPO="${1#*=}"
+      shift
+      ;;
+    --repo)
+      REPO="$2"
+      shift 2
+      ;;
+    --path=*)
+      LOCAL_PATH="${1#*=}"
+      shift
+      ;;
+    --path)
+      LOCAL_PATH="$2"
+      shift 2
+      ;;
+    --ref=*)
+      REF="${1#*=}"
+      shift
+      ;;
+    --ref)
+      REF="$2"
+      shift 2
+      ;;
+    --registry=*)
+      REGISTRY_PREFIX="${1#*=}"
+      shift
+      ;;
+    --registry)
+      REGISTRY_PREFIX="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Usage: $0 [--repo URL|--path DIR] [--ref REF] [--registry PREFIX]"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+      ;;
   esac
 done
 
