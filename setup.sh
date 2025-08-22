@@ -67,9 +67,29 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo "Unknown option: $1"
-            echo "Use --help for usage information"
-            exit 1
+            # Heuristics: allow split URLs across lines (e.g., "https://github.com/org" "\/repo")
+            if [[ -z "$BUILD_REPO" && "$1" =~ ^https?:// ]]; then
+                if [[ $# -ge 2 && "$2" == /* ]]; then
+                    BUILD_REPO="$1$2"
+                    shift 2
+                else
+                    BUILD_REPO="$1"
+                    shift
+                fi
+                ;;
+            elif [[ -n "$BUILD_REPO" && "$BUILD_REPO" =~ ^https?://[^/]+$ && "$1" == /* ]]; then
+                BUILD_REPO="$BUILD_REPO$1"
+                shift
+                ;;
+            elif [[ -z "$BUILD_PATH" && -d "$1" ]]; then
+                BUILD_PATH="$1"
+                shift
+                ;;
+            else
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+            fi
             ;;
     esac
 done
