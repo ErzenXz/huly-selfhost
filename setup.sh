@@ -246,7 +246,9 @@ fi
 export HOST_ADDRESS=$_HOST_ADDRESS
 export SECURE=$_SECURE
 export HTTP_PORT=$_HTTP_PORT
-export HTTP_BIND=$HTTP_BIND
+export HTTP_BIND=${HTTP_BIND:-0.0.0.0}
+export DOCKER_NAME=${DOCKER_NAME:-huly}
+export HULY_VERSION=${HULY_VERSION:-v0.6.502}
 export TITLE=${TITLE:-Huly}
 export DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
 export LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
@@ -254,6 +256,7 @@ export VOLUME_DB_PATH=$_VOLUME_DB_PATH
 export VOLUME_ELASTIC_PATH=$_VOLUME_ELASTIC_PATH
 export VOLUME_FILES_PATH=$_VOLUME_FILES_PATH
 export HULY_SECRET=$(cat .huly.secret)
+export SECRET=$(cat .huly.secret)
 
 # Optional services configuration prompts
 echo -e "\n\033[1;34mOptional services configuration:\033[0m"
