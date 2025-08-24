@@ -173,11 +173,13 @@ ensure_bundle_if_needed() {
   fi
   local needs_bundle=false
   local needs_lib=false
+  local needs_dist=false
   if grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then needs_bundle=true; fi
   if grep -qE 'COPY\s+\./lib(\s|$)|COPY\s+lib(\s|$)' "$dockerfile"; then needs_lib=true; fi
+  if grep -qE 'COPY\s+\./dist/?(\s|$)|COPY\s+dist/?(\s|$)' "$dockerfile"; then needs_dist=true; fi
 
   # Quick exit if nothing special needed
-  if [[ "$needs_bundle" != true && "$needs_lib" != true ]]; then
+  if [[ "$needs_bundle" != true && "$needs_lib" != true && "$needs_dist" != true ]]; then
     return 0
   fi
 
@@ -199,11 +201,14 @@ ensure_bundle_if_needed() {
       if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
         (cd "$context" && node "$rushx_js" build) || true
       fi
+      if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
+        (cd "$context" && node "$rushx_js" build) || true
+      fi
     fi
   fi
 
   # Fallback: try building with the detected package manager directly in the context
-  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
+  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]] || [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
     local pm
     pm="$(choose_package_manager "$context")"
     if command -v corepack >/dev/null 2>&1; then
@@ -223,16 +228,19 @@ ensure_bundle_if_needed() {
         (pnpm install --frozen-lockfile || pnpm install) || true
         if [[ "$needs_bundle" == true ]]; then (pnpm run bundle || pnpm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
         ;;
       yarn)
         (yarn install --frozen-lockfile || yarn install) || true
         if [[ "$needs_bundle" == true ]]; then (yarn bundle || yarn build) || true; fi
         if [[ "$needs_lib" == true ]]; then (yarn build || yarn compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (yarn build || yarn compile) || true; fi
         ;;
       npm)
         (npm install --no-audit --no-fund) || true
         if [[ "$needs_bundle" == true ]]; then (npm run bundle || npm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (npm run build || npm run compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (npm run build || npm run compile) || true; fi
         ;;
     esac
     popd >/dev/null
@@ -252,6 +260,12 @@ ensure_bundle_if_needed() {
       cp -r "$context/dist" "$context/lib" || true
     fi
   fi
+  if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
+    # Some repos build into lib/. Accept either and copy if needed
+    if [[ -d "$context/lib" ]]; then
+      cp -r "$context/lib" "$context/dist" || true
+    fi
+  fi
 
   # If still missing required artifacts, signal failure
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
@@ -260,6 +274,10 @@ ensure_bundle_if_needed() {
   fi
   if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
     echo "Warning: Could not produce $context/lib. Skipping local build for this service."
+    return 1
+  fi
+  if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
+    echo "Warning: Could not produce $context/dist. Skipping local build for this service."
     return 1
   fi
   return 0
