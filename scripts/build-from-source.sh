@@ -177,6 +177,34 @@ copy_alt_artifact_dir() {
   return 1
 }
 
+# Helper: try to locate a suitable dist with index.html for a given context (e.g., pods/front)
+populate_dist_assets() {
+  local context="$1"
+  local target_dist="$context/dist"
+  if [[ -d "$target_dist" && -f "$target_dist/index.html" ]]; then
+    return 0
+  fi
+  # Prefer well-known locations
+  local candidates=(
+    "$PLATFORM_DIR/server/front/dist"
+    "$PLATFORM_DIR/apps/front/dist"
+    "$PLATFORM_DIR/pods/front/dist"
+  )
+  # Fallback: any dist with index.html under repo
+  if [[ ${#candidates[@]} -eq 0 ]]; then
+    mapfile -t candidates < <(find "$PLATFORM_DIR" -type f -name index.html -path "*/dist/index.html" -printf '%h\n' | sort -u)
+  fi
+  for d in "${candidates[@]}"; do
+    if [[ -d "$d" && -f "$d/index.html" ]]; then
+      mkdir -p "$target_dist"
+      rm -rf "$target_dist"
+      cp -r "$d" "$target_dist" || true
+      break
+    fi
+  done
+  [[ -d "$target_dist" && -f "$target_dist/index.html" ]]
+}
+
 # Helper: ensure required build artifacts exist based on Dockerfile expectations
 ensure_bundle_if_needed() {
   local context="$1"
@@ -274,6 +302,10 @@ ensure_bundle_if_needed() {
   if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
     # Some repos build into lib/. Accept either and copy if needed
     copy_alt_artifact_dir "$context/lib" "$context/dist" || true
+    # As a stronger fallback, search repo for a suitable dist with index.html
+    if [[ ! -f "$context/dist/index.html" ]]; then
+      populate_dist_assets "$context" || true
+    fi
   fi
 
   # If still missing required artifacts, signal failure
