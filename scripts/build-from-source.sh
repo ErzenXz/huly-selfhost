@@ -65,8 +65,17 @@ progress_print() {
     "$(format_mmss "$elapsed")" \
     "$(format_mmss "$eta")" \
     "$PROGRESS_STEP_INDEX" "$PROGRESS_TOTAL_STEPS" "$label")
-  # Print on its own line to avoid clobbering tool output
-  echo -e "$line"
+  # Update external gauge if active
+  gauge_update "$percent" "$label" || true
+  # Print on its own line (suppressed when dialog gauge is active)
+  if [[ "${DIALOG_ACTIVE:-false}" != true ]]; then
+    if [[ -t 1 ]]; then
+      # update single sticky line
+      echo -ne "\r\033[K${line}"
+    else
+      echo -e "$line"
+    fi
+  fi
   PROGRESS_LAST_LINE="$line"
 }
 
@@ -74,6 +83,50 @@ progress_step_start() {
   PROGRESS_STEP_INDEX=$(( PROGRESS_STEP_INDEX + 1 ))
   PROGRESS_STEP_START_TS=$(date +%s)
   progress_print "$1"
+}
+
+# -------------------------
+# Dialog gauge (optional UI)
+# -------------------------
+DIALOG_ACTIVE=false
+GAUGE_PIPE=""
+GAUGE_PID=""
+
+gauge_start() {
+  if command -v dialog >/dev/null 2>&1 && [[ -t 1 ]]; then
+    GAUGE_PIPE=$(mktemp -u)
+    mkfifo "$GAUGE_PIPE"
+    # shellcheck disable=SC2094
+    dialog --no-mouse --title "Huly Build" --gauge "Starting..." 10 70 0 < "$GAUGE_PIPE" &
+    GAUGE_PID=$!
+    exec 3>"$GAUGE_PIPE"
+    DIALOG_ACTIVE=true
+    trap 'gauge_stop' EXIT INT TERM
+  fi
+}
+
+gauge_update() {
+  local percent="$1"
+  local message="$2"
+  if [[ "$DIALOG_ACTIVE" == true ]]; then
+    {
+      echo "XXX"
+      echo "$percent"
+      echo "$message"
+      echo "XXX"
+    } >&3
+  fi
+}
+
+gauge_stop() {
+  if [[ "$DIALOG_ACTIVE" == true ]]; then
+    exec 3>&-
+    sleep 0.1 || true
+    kill "$GAUGE_PID" >/dev/null 2>&1 || true
+    rm -f "$GAUGE_PIPE" || true
+    DIALOG_ACTIVE=false
+    clear
+  fi
 }
 
 progress_step_end() {
@@ -133,6 +186,7 @@ if [[ -z "$REPO" && -z "$LOCAL_PATH" ]]; then
 fi
 
 progress_step_start "Prepare work directory"
+gauge_start
 mkdir -p "$WORK_DIR"
 progress_step_end
 
@@ -309,12 +363,14 @@ ensure_bundle_if_needed() {
   local needs_bundle=false
   local needs_lib=false
   local needs_dist=false
+  local needs_model_json=false
   if grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then needs_bundle=true; fi
   if grep -qE 'COPY\s+\./lib(\s|$)|COPY\s+lib(\s|$)' "$dockerfile"; then needs_lib=true; fi
   if grep -qE 'COPY\s+\./dist/?(\s|$)|COPY\s+dist/?(\s|$)' "$dockerfile"; then needs_dist=true; fi
+  if grep -qE 'COPY\s+.*bundle/model\.json' "$dockerfile"; then needs_model_json=true; fi
 
   # Quick exit if nothing special needed
-  if [[ "$needs_bundle" != true && "$needs_lib" != true && "$needs_dist" != true ]]; then
+  if [[ "$needs_bundle" != true && "$needs_lib" != true && "$needs_dist" != true && "$needs_model_json" != true ]]; then
     return 0
   fi
 
@@ -339,11 +395,14 @@ ensure_bundle_if_needed() {
       if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
         (cd "$context" && node "$rushx_js" build) || true
       fi
+      if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
+        (cd "$context" && node "$rushx_js" bundle) || true
+      fi
     fi
   fi
 
   # Fallback: try building with the detected package manager directly in the context
-  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]] || [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
+  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]] || [[ "$needs_dist" == true && ! -d "$context/dist" ]] || [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
     local pm
     pm="$(choose_package_manager "$context")"
     if command -v corepack >/dev/null 2>&1; then
@@ -364,18 +423,21 @@ ensure_bundle_if_needed() {
         if [[ "$needs_bundle" == true ]]; then (pnpm run bundle || pnpm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
+        if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (pnpm run bundle || true); fi
         ;;
       yarn)
         (yarn install --frozen-lockfile || yarn install) || true
         if [[ "$needs_bundle" == true ]]; then (yarn bundle || yarn build) || true; fi
         if [[ "$needs_lib" == true ]]; then (yarn build || yarn compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (yarn build || yarn compile) || true; fi
+        if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (yarn bundle || true); fi
         ;;
       npm)
         (npm install --no-audit --no-fund) || true
         if [[ "$needs_bundle" == true ]]; then (npm run bundle || npm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (npm run build || npm run compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (npm run build || npm run compile) || true; fi
+        if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (npm run bundle || true); fi
         ;;
     esac
     popd >/dev/null
@@ -405,6 +467,17 @@ ensure_bundle_if_needed() {
       create_minimal_index_html "$context" || true
     fi
   fi
+  if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
+    # Try to locate model.json within context or repo
+    mapfile -t found_model < <(find "$context" -type f -name model.json | head -n 1)
+    if [[ ${#found_model[@]} -eq 0 ]]; then
+      mapfile -t found_model < <(find "$PLATFORM_DIR" -type f -name model.json | grep -E "/(fulltext|pods/fulltext|services/fulltext)/" | head -n 1)
+    fi
+    if [[ ${#found_model[@]} -gt 0 ]]; then
+      mkdir -p "$context/bundle"
+      cp -f "${found_model[0]}" "$context/bundle/model.json" || true
+    fi
+  fi
 
   # If still missing required artifacts, signal failure
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
@@ -417,6 +490,10 @@ ensure_bundle_if_needed() {
   fi
   if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
     echo "Warning: Could not produce $context/dist. Skipping local build for this service."
+    return 1
+  fi
+  if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
+    echo "Warning: Could not produce $context/bundle/model.json. Skipping local build for this service."
     return 1
   fi
   return 0
@@ -452,6 +529,9 @@ build_service_image() {
     cp -f "$context/bundle/bundle.js" "$tmp_ctx_dir/bundle/" || true
     if [[ -f "$context/bundle/bundle.js.map" ]]; then
       cp -f "$context/bundle/bundle.js.map" "$tmp_ctx_dir/bundle/" || true
+    fi
+    if [[ -f "$context/bundle/model.json" ]]; then
+      cp -f "$context/bundle/model.json" "$tmp_ctx_dir/bundle/" || true
     fi
   fi
   if [[ "$needs_dist" == true ]]; then
