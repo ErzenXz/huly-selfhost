@@ -18,6 +18,70 @@ LOCAL_PATH=""
 REGISTRY_PREFIX=""
 STATE_FILE="${ROOT_DIR}/.build-source.json"
 
+# -------------------------
+# Progress UI helpers
+# -------------------------
+PROGRESS_TOTAL_STEPS=${PROGRESS_TOTAL_STEPS:-13}
+PROGRESS_STEP_INDEX=0
+PROGRESS_START_TS=$(date +%s)
+PROGRESS_STEP_START_TS=$PROGRESS_START_TS
+PROGRESS_LAST_LINE=""
+
+color_blue="\033[1;34m"
+color_green="\033[1;32m"
+color_yellow="\033[33m"
+color_reset="\033[0m"
+
+progress_bar() {
+  local percent=$1
+  local width=${2:-30}
+  local filled=$(( percent * width / 100 ))
+  local empty=$(( width - filled ))
+  printf '[%*s%*s]' "$filled" | tr ' ' '#' ; printf '%*s' "$empty" | tr ' ' '-'
+}
+
+format_mmss() {
+  local s=$1
+  if (( s < 0 )); then s=0; fi
+  printf '%02d:%02d' $((s/60)) $((s%60))
+}
+
+progress_print() {
+  local label="$1"
+  local now=$(date +%s)
+  local elapsed=$(( now - PROGRESS_START_TS ))
+  local percent=$(( PROGRESS_STEP_INDEX * 100 / PROGRESS_TOTAL_STEPS ))
+  local eta=-1
+  if (( PROGRESS_STEP_INDEX > 0 )); then
+    local avg=$(( elapsed / PROGRESS_STEP_INDEX ))
+    eta=$(( avg * (PROGRESS_TOTAL_STEPS - PROGRESS_STEP_INDEX) ))
+  fi
+  local bar
+  bar=$(progress_bar "$percent" 28)
+  local line
+  line=$(printf " %s%s%s %s %3d%%%% | elapsed %s | eta %s | step %d/%d: %s" \
+    "$color_blue" "$bar" "$color_reset" \
+    "" "$percent" \
+    "$(format_mmss "$elapsed")" \
+    "$(format_mmss "$eta")" \
+    "$PROGRESS_STEP_INDEX" "$PROGRESS_TOTAL_STEPS" "$label")
+  # Print on its own line to avoid clobbering tool output
+  echo -e "$line"
+  PROGRESS_LAST_LINE="$line"
+}
+
+progress_step_start() {
+  PROGRESS_STEP_INDEX=$(( PROGRESS_STEP_INDEX + 1 ))
+  PROGRESS_STEP_START_TS=$(date +%s)
+  progress_print "$1"
+}
+
+progress_step_end() {
+  local now=$(date +%s)
+  local dur=$(( now - PROGRESS_STEP_START_TS ))
+  echo -e "  ${color_green}✔${color_reset} done in $(format_mmss "$dur")"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo=*)
@@ -68,8 +132,11 @@ if [[ -z "$REPO" && -z "$LOCAL_PATH" ]]; then
   exit 1
 fi
 
+progress_step_start "Prepare work directory"
 mkdir -p "$WORK_DIR"
+progress_step_end
 
+progress_step_start "Fetch source repository"
 if [[ -n "$REPO" ]]; then
   PLATFORM_DIR="${WORK_DIR}/platform"
   if [[ -d "$PLATFORM_DIR/.git" ]]; then
@@ -99,7 +166,9 @@ else
     echo "Warning: --ref is ignored when using --path"
   fi
 fi
+progress_step_end
 
+progress_step_start "Persist build source info"
 echo "Platform directory: $PLATFORM_DIR"
 
 # Persist build source info for update scripts
@@ -112,8 +181,10 @@ cat > "$STATE_FILE" <<JSON
   "platformDir": "${PLATFORM_DIR//\\/\\\\}"
 }
 JSON
+progress_step_end
 
 # Build workspace if repo is Rush-based so pod bundles exist for Dockerfiles (e.g. pods/*/bundle)
+progress_step_start "Install and build monorepo (Rush)"
 pushd "$PLATFORM_DIR" >/dev/null
 
 if [[ -f "rush.json" ]]; then
@@ -126,6 +197,8 @@ if [[ -f "rush.json" ]]; then
   npx -y @microsoft/rush install
   npx -y @microsoft/rush build
 fi
+popd >/dev/null
+progress_step_end
 
 # Helper: choose a package manager based on lockfiles
 choose_package_manager() {
@@ -491,14 +564,18 @@ discover_context_for_service() {
   return 1
 }
 
+progress_step_start "Discover service contexts"
 IMAGES_FILE="${ROOT_DIR}/.images.conf"
 > "$IMAGES_FILE"
+progress_step_end
 
 for svc in account front collaborator transactor workspace fulltext stats rekoni love aibot; do
+  progress_step_start "Build image: ${svc}"
   context="$(discover_context_for_service "$svc" || true)"
   if [[ -n "$context" && -f "$context/Dockerfile" ]]; then
     ensure_bundle_if_needed "$context" || {
       echo "Skipping $svc due to missing required bundle."
+      progress_step_end
       continue
     }
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
@@ -518,11 +595,13 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
   else
     echo "Skipping $svc (no Dockerfile found)"
   fi
+  progress_step_end
 done
 
 popd >/dev/null
 
 echo "Written image overrides to $IMAGES_FILE"
 echo "To use with compose: docker compose --env-file .images.conf up -d"
+echo -e "${color_yellow}Build completed. Images are ready.${color_reset}"
 
 
