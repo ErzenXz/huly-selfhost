@@ -65,16 +65,11 @@ progress_print() {
     "$(format_mmss "$elapsed")" \
     "$(format_mmss "$eta")" \
     "$PROGRESS_STEP_INDEX" "$PROGRESS_TOTAL_STEPS" "$label")
-  # Update external gauge if active
-  gauge_update "$percent" "$label" || true
-  # Print on its own line (suppressed when dialog gauge is active)
-  if [[ "${DIALOG_ACTIVE:-false}" != true ]]; then
-    if [[ -t 1 ]]; then
-      # update single sticky line
-      echo -ne "\r\033[K${line}"
-    else
-      echo -e "$line"
-    fi
+  # Print on a single sticky line when in TTY
+  if [[ -t 1 ]]; then
+    echo -ne "\r\033[K${line}"
+  else
+    echo -e "$line"
   fi
   PROGRESS_LAST_LINE="$line"
 }
@@ -82,50 +77,35 @@ progress_print() {
 progress_step_start() {
   PROGRESS_STEP_INDEX=$(( PROGRESS_STEP_INDEX + 1 ))
   PROGRESS_STEP_START_TS=$(date +%s)
-  progress_print "$1"
+  local label="$1"
+  gum_spin_stop || true
+  gum_spin_start "$label" || true
+  progress_print "$label"
 }
 
 # -------------------------
-# Dialog gauge (optional UI)
+# GUM spinner (optional)
 # -------------------------
-DIALOG_ACTIVE=false
-GAUGE_PIPE=""
-GAUGE_PID=""
+HAS_GUM=false
+if command -v gum >/dev/null 2>&1 && [[ -t 1 ]]; then
+  HAS_GUM=true
+fi
 
-gauge_start() {
-  if command -v dialog >/dev/null 2>&1 && [[ -t 1 ]]; then
-    GAUGE_PIPE=$(mktemp -u)
-    mkfifo "$GAUGE_PIPE"
-    # shellcheck disable=SC2094
-    dialog --no-mouse --title "Huly Build" --gauge "Starting..." 10 70 0 < "$GAUGE_PIPE" &
-    GAUGE_PID=$!
-    exec 3>"$GAUGE_PIPE"
-    DIALOG_ACTIVE=true
-    trap 'gauge_stop' EXIT INT TERM
+GUM_SPIN_PID=""
+gum_spin_start() {
+  local label="$1"
+  if [[ "$HAS_GUM" == true ]]; then
+    # Start a long-running spinner and stop it when step ends
+    gum spin --title "$label" --spinner dot -- sleep 31536000 &
+    GUM_SPIN_PID=$!
   fi
 }
 
-gauge_update() {
-  local percent="$1"
-  local message="$2"
-  if [[ "$DIALOG_ACTIVE" == true ]]; then
-    {
-      echo "XXX"
-      echo "$percent"
-      echo "$message"
-      echo "XXX"
-    } >&3
-  fi
-}
-
-gauge_stop() {
-  if [[ "$DIALOG_ACTIVE" == true ]]; then
-    exec 3>&-
-    sleep 0.1 || true
-    kill "$GAUGE_PID" >/dev/null 2>&1 || true
-    rm -f "$GAUGE_PIPE" || true
-    DIALOG_ACTIVE=false
-    clear
+gum_spin_stop() {
+  if [[ -n "$GUM_SPIN_PID" ]]; then
+    kill "$GUM_SPIN_PID" >/dev/null 2>&1 || true
+    wait "$GUM_SPIN_PID" 2>/dev/null || true
+    GUM_SPIN_PID=""
   fi
 }
 
@@ -133,6 +113,7 @@ progress_step_end() {
   local now=$(date +%s)
   local dur=$(( now - PROGRESS_STEP_START_TS ))
   echo -e "  ${color_green}✔${color_reset} done in $(format_mmss "$dur")"
+  gum_spin_stop || true
 }
 
 while [[ $# -gt 0 ]]; do
@@ -247,9 +228,9 @@ if [[ -f "rush.json" ]]; then
     echo "Error: npm not found. Please install Node.js (>=18) and npm, then rerun." >&2
     exit 1
   fi
-  npx -y @microsoft/rush purge || true
-  npx -y @microsoft/rush install
-  npx -y @microsoft/rush build
+    npx -y @microsoft/rush purge || true
+    npx -y @microsoft/rush install
+    npx -y @microsoft/rush build
 fi
 popd >/dev/null
 progress_step_end
@@ -656,7 +637,7 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
     ensure_bundle_if_needed "$context" || {
       echo "Skipping $svc due to missing required bundle."
       progress_step_end
-      continue
+    continue
     }
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
     build_service_image "$svc" "$context" "$tag_base"
