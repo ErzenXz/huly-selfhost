@@ -164,6 +164,19 @@ read_package_name() {
   fi
 }
 
+# Helper: best-effort copy of an alternative artifact source into the context
+copy_alt_artifact_dir() {
+  local src_dir="$1"
+  local dst_dir="$2"
+  if [[ -d "$src_dir" ]]; then
+    mkdir -p "$(dirname "$dst_dir")"
+    rm -rf "$dst_dir"
+    cp -r "$src_dir" "$dst_dir" || true
+    return 0
+  fi
+  return 1
+}
+
 # Helper: ensure required build artifacts exist based on Dockerfile expectations
 ensure_bundle_if_needed() {
   local context="$1"
@@ -256,15 +269,11 @@ ensure_bundle_if_needed() {
   fi
   if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
     # Some repos build into dist/. Accept either and copy if needed
-    if [[ -d "$context/dist" ]]; then
-      cp -r "$context/dist" "$context/lib" || true
-    fi
+    copy_alt_artifact_dir "$context/dist" "$context/lib" || true
   fi
   if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
     # Some repos build into lib/. Accept either and copy if needed
-    if [[ -d "$context/lib" ]]; then
-      cp -r "$context/lib" "$context/dist" || true
-    fi
+    copy_alt_artifact_dir "$context/lib" "$context/dist" || true
   fi
 
   # If still missing required artifacts, signal failure
