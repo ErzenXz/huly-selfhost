@@ -65,9 +65,14 @@ progress_print() {
     "$(format_mmss "$elapsed")" \
     "$(format_mmss "$eta")" \
     "$PROGRESS_STEP_INDEX" "$PROGRESS_TOTAL_STEPS" "$label")
-  # Print on a single sticky line when in TTY
+  # Print on a single sticky line when in TTY (always visible)
   if [[ -t 1 ]]; then
+    # Save cursor position, move to bottom line, clear, print, restore
+    tput sc 2>/dev/null || true
+    # Move cursor to last row first column
+    tput cup $(( $(tput lines 2>/dev/null || echo 999) - 1 )) 0 2>/dev/null || echo -ne "\n"
     echo -ne "\r\033[K${line}"
+    tput rc 2>/dev/null || true
   else
     echo -e "$line"
   fi
@@ -78,8 +83,6 @@ progress_step_start() {
   PROGRESS_STEP_INDEX=$(( PROGRESS_STEP_INDEX + 1 ))
   PROGRESS_STEP_START_TS=$(date +%s)
   local label="$1"
-  gum_spin_stop || true
-  gum_spin_start "$label" || true
   progress_print "$label"
 }
 
@@ -113,7 +116,8 @@ progress_step_end() {
   local now=$(date +%s)
   local dur=$(( now - PROGRESS_STEP_START_TS ))
   echo -e "  ${color_green}✔${color_reset} done in $(format_mmss "$dur")"
-  gum_spin_stop || true
+  # Reprint sticky status line after regular output
+  progress_print ""
 }
 
 while [[ $# -gt 0 ]]; do
@@ -167,7 +171,6 @@ if [[ -z "$REPO" && -z "$LOCAL_PATH" ]]; then
 fi
 
 progress_step_start "Prepare work directory"
-gauge_start
 mkdir -p "$WORK_DIR"
 progress_step_end
 
