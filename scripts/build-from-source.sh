@@ -32,92 +32,12 @@ color_green="\033[1;32m"
 color_yellow="\033[33m"
 color_reset="\033[0m"
 
-progress_bar() {
-  local percent=$1
-  local width=${2:-30}
-  local filled=$(( percent * width / 100 ))
-  local empty=$(( width - filled ))
-  printf '[%*s%*s]' "$filled" | tr ' ' '#' ; printf '%*s' "$empty" | tr ' ' '-'
-}
-
-format_mmss() {
-  local s=$1
-  if (( s < 0 )); then s=0; fi
-  printf '%02d:%02d' $((s/60)) $((s%60))
-}
-
-progress_print() {
-  local label="$1"
-  local now=$(date +%s)
-  local elapsed=$(( now - PROGRESS_START_TS ))
-  local percent=$(( PROGRESS_STEP_INDEX * 100 / PROGRESS_TOTAL_STEPS ))
-  local eta=-1
-  if (( PROGRESS_STEP_INDEX > 0 )); then
-    local avg=$(( elapsed / PROGRESS_STEP_INDEX ))
-    eta=$(( avg * (PROGRESS_TOTAL_STEPS - PROGRESS_STEP_INDEX) ))
-  fi
-  local bar
-  bar=$(progress_bar "$percent" 28)
-  local line
-  line=$(printf " %s%s%s %s %3d%%%% | elapsed %s | eta %s | step %d/%d: %s" \
-    "$color_blue" "$bar" "$color_reset" \
-    "" "$percent" \
-    "$(format_mmss "$elapsed")" \
-    "$(format_mmss "$eta")" \
-    "$PROGRESS_STEP_INDEX" "$PROGRESS_TOTAL_STEPS" "$label")
-  # Print on a single sticky line when in TTY (always visible)
-  if [[ -t 1 ]]; then
-    # Save cursor position, move to bottom line, clear, print, restore
-    tput sc 2>/dev/null || true
-    # Move cursor to last row first column
-    tput cup $(( $(tput lines 2>/dev/null || echo 999) - 1 )) 0 2>/dev/null || echo -ne "\n"
-    echo -ne "\r\033[K${line}"
-    tput rc 2>/dev/null || true
-  else
-    echo -e "$line"
-  fi
-  PROGRESS_LAST_LINE="$line"
-}
-
 progress_step_start() {
-  PROGRESS_STEP_INDEX=$(( PROGRESS_STEP_INDEX + 1 ))
-  PROGRESS_STEP_START_TS=$(date +%s)
-  local label="$1"
-  progress_print "$label"
-}
-
-# -------------------------
-# GUM spinner (optional)
-# -------------------------
-HAS_GUM=false
-if command -v gum >/dev/null 2>&1 && [[ -t 1 ]]; then
-  HAS_GUM=true
-fi
-
-GUM_SPIN_PID=""
-gum_spin_start() {
-  local label="$1"
-  if [[ "$HAS_GUM" == true ]]; then
-    # Start a long-running spinner and stop it when step ends
-    gum spin --title "$label" --spinner dot -- sleep 31536000 &
-    GUM_SPIN_PID=$!
-  fi
-}
-
-gum_spin_stop() {
-  if [[ -n "$GUM_SPIN_PID" ]]; then
-    kill "$GUM_SPIN_PID" >/dev/null 2>&1 || true
-    wait "$GUM_SPIN_PID" 2>/dev/null || true
-    GUM_SPIN_PID=""
-  fi
+  :
 }
 
 progress_step_end() {
-  local now=$(date +%s)
-  local dur=$(( now - PROGRESS_STEP_START_TS ))
-  echo -e "  ${color_green}✔${color_reset} done in $(format_mmss "$dur")"
-  # Reprint sticky status line after regular output
-  progress_print ""
+  :
 }
 
 while [[ $# -gt 0 ]]; do
@@ -170,11 +90,10 @@ if [[ -z "$REPO" && -z "$LOCAL_PATH" ]]; then
   exit 1
 fi
 
-progress_step_start "Prepare work directory"
 mkdir -p "$WORK_DIR"
-progress_step_end
+:
 
-progress_step_start "Fetch source repository"
+:
 if [[ -n "$REPO" ]]; then
   PLATFORM_DIR="${WORK_DIR}/platform"
   if [[ -d "$PLATFORM_DIR/.git" ]]; then
@@ -204,9 +123,9 @@ else
     echo "Warning: --ref is ignored when using --path"
   fi
 fi
-progress_step_end
+:
 
-progress_step_start "Persist build source info"
+:
 echo "Platform directory: $PLATFORM_DIR"
 
 # Persist build source info for update scripts
@@ -219,10 +138,10 @@ cat > "$STATE_FILE" <<JSON
   "platformDir": "${PLATFORM_DIR//\\/\\\\}"
 }
 JSON
-progress_step_end
+:
 
 # Build workspace if repo is Rush-based so pod bundles exist for Dockerfiles (e.g. pods/*/bundle)
-progress_step_start "Install and build monorepo (Rush)"
+:
 pushd "$PLATFORM_DIR" >/dev/null
 
 if [[ -f "rush.json" ]]; then
@@ -236,7 +155,7 @@ if [[ -f "rush.json" ]]; then
     npx -y @microsoft/rush build
 fi
 popd >/dev/null
-progress_step_end
+:
 
 # Helper: choose a package manager based on lockfiles
 choose_package_manager() {
@@ -628,18 +547,18 @@ discover_context_for_service() {
   return 1
 }
 
-progress_step_start "Discover service contexts"
+:
 IMAGES_FILE="${ROOT_DIR}/.images.conf"
 > "$IMAGES_FILE"
-progress_step_end
+:
 
 for svc in account front collaborator transactor workspace fulltext stats rekoni love aibot; do
-  progress_step_start "Build image: ${svc}"
+  :
   context="$(discover_context_for_service "$svc" || true)"
   if [[ -n "$context" && -f "$context/Dockerfile" ]]; then
     ensure_bundle_if_needed "$context" || {
       echo "Skipping $svc due to missing required bundle."
-      progress_step_end
+      :
     continue
     }
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
@@ -659,7 +578,7 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
   else
     echo "Skipping $svc (no Dockerfile found)"
   fi
-  progress_step_end
+  :
 done
 
 popd >/dev/null
