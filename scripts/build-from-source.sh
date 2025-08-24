@@ -205,6 +205,27 @@ populate_dist_assets() {
   [[ -d "$target_dist" && -f "$target_dist/index.html" ]]
 }
 
+# Helper: create a minimal SPA index.html referencing the bundle
+create_minimal_index_html() {
+  local context="$1"
+  local target_dist="$context/dist"
+  mkdir -p "$target_dist"
+  cat > "$target_dist/index.html" <<'HTML'
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Huly</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/bundle/bundle.js"></script>
+  </body>
+  </html>
+HTML
+}
+
 # Helper: ensure required build artifacts exist based on Dockerfile expectations
 ensure_bundle_if_needed() {
   local context="$1"
@@ -305,6 +326,10 @@ ensure_bundle_if_needed() {
     # As a stronger fallback, search repo for a suitable dist with index.html
     if [[ ! -f "$context/dist/index.html" ]]; then
       populate_dist_assets "$context" || true
+    fi
+    # Last resort: generate a minimal index.html that loads the bundle
+    if [[ ! -f "$context/dist/index.html" && -f "$context/bundle/bundle.js" ]]; then
+      create_minimal_index_html "$context" || true
     fi
   fi
 
