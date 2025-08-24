@@ -349,6 +349,61 @@ ensure_bundle_if_needed() {
   return 0
 }
 
+# Build the image using a minimal, controlled context to avoid .dockerignore exclusions
+build_service_image() {
+  local svc="$1"
+  local context="$2"
+  local tag_base="$3"
+  local dockerfile="$context/Dockerfile"
+  local tmp_ctx_dir="$WORK_DIR/build-${svc}"
+
+  rm -rf "$tmp_ctx_dir"
+  mkdir -p "$tmp_ctx_dir"
+
+  # Copy Dockerfile
+  cp "$dockerfile" "$tmp_ctx_dir/Dockerfile"
+  # Ensure no excludes
+  : > "$tmp_ctx_dir/.dockerignore"
+
+  # Determine what the Dockerfile expects
+  local needs_dist=false
+  local needs_lib=false
+  local needs_bundle=false
+  if grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then needs_bundle=true; fi
+  if grep -qE 'COPY\s+\./dist/?|COPY\s+dist/?' "$dockerfile"; then needs_dist=true; fi
+  if grep -qE 'COPY\s+\./lib(\s|$)|COPY\s+lib(\s|$)' "$dockerfile"; then needs_lib=true; fi
+
+  # Populate artifacts
+  if [[ "$needs_bundle" == true && -f "$context/bundle/bundle.js" ]]; then
+    mkdir -p "$tmp_ctx_dir/bundle"
+    cp -f "$context/bundle/bundle.js" "$tmp_ctx_dir/bundle/" || true
+    if [[ -f "$context/bundle/bundle.js.map" ]]; then
+      cp -f "$context/bundle/bundle.js.map" "$tmp_ctx_dir/bundle/" || true
+    fi
+  fi
+  if [[ "$needs_dist" == true ]]; then
+    if [[ -d "$context/dist" ]]; then
+      cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
+    elif [[ -d "$context/lib" ]]; then
+      # Map lib as dist if only lib exists
+      cp -r "$context/lib" "$tmp_ctx_dir/dist" || true
+    fi
+  fi
+  if [[ "$needs_lib" == true && -d "$context/lib" ]]; then
+    cp -r "$context/lib" "$tmp_ctx_dir/lib" || true
+  fi
+
+  # Copy common files some Dockerfiles expect
+  for f in package.json pnpm-lock.yaml yarn.lock package-lock.json; do
+    if [[ -f "$context/$f" ]]; then
+      cp -f "$context/$f" "$tmp_ctx_dir/" || true
+    fi
+  done
+
+  echo "Building $svc from $context using minimal context at $tmp_ctx_dir as $tag_base"
+  docker build -t "$tag_base" -f "$tmp_ctx_dir/Dockerfile" "$tmp_ctx_dir"
+}
+
 #!/usr/bin/env bash
 
 # Fallback: attempt to build images from known service subfolders, with discovery
@@ -447,8 +502,7 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
       continue
     }
     tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
-    echo "Building $svc from $context as $tag_base"
-    docker build -t "$tag_base" "$context"
+    build_service_image "$svc" "$context" "$tag_base"
     case "$svc" in
       rekoni)    echo "IMAGE_REKONI=$tag_base" >> "$IMAGES_FILE" ;;
       account)   echo "IMAGE_ACCOUNT=$tag_base" >> "$IMAGES_FILE" ;;
