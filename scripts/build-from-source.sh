@@ -141,38 +141,71 @@ choose_package_manager() {
   echo npm
 }
 
-# Helper: ensure bundle/bundle.js exists for a given context if Dockerfile expects it
+# Helper: find rushx runner script from a context by walking up to repo root
+find_rushx_script() {
+  local dir="$1"
+  local attempts=0
+  while [[ "$dir" != "/" && $attempts -lt 6 ]]; do
+    if [[ -f "$dir/common/scripts/install-run-rushx.js" ]]; then
+      echo "$dir/common/scripts/install-run-rushx.js"
+      return 0
+    fi
+    dir="$(dirname "$dir")"
+    attempts=$((attempts+1))
+  done
+  return 1
+}
+
+# Helper: parse package name from package.json (best-effort)
+read_package_name() {
+  local context="$1"
+  if [[ -f "$context/package.json" ]]; then
+    sed -n 's/^\s*"name"\s*:\s*"\(.*\)".*/\1/p' "$context/package.json" | head -n1
+  fi
+}
+
+# Helper: ensure required build artifacts exist based on Dockerfile expectations
 ensure_bundle_if_needed() {
   local context="$1"
   local dockerfile="$context/Dockerfile"
   if [[ ! -f "$dockerfile" ]]; then
     return 0
   fi
-  if ! grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then
-    return 0
-  fi
-  if [[ -f "$context/bundle/bundle.js" ]]; then
+  local needs_bundle=false
+  local needs_lib=false
+  if grep -qE 'COPY\s+.*bundle/bundle\.js' "$dockerfile"; then needs_bundle=true; fi
+  if grep -qE 'COPY\s+\./lib(\s|$)|COPY\s+lib(\s|$)' "$dockerfile"; then needs_lib=true; fi
+
+  # Quick exit if nothing special needed
+  if [[ "$needs_bundle" != true && "$needs_lib" != true ]]; then
     return 0
   fi
 
-  echo "bundle/bundle.js not found in $context; attempting to build the pod"
-  # Prefer Rush targeted build for pods when available
-  if [[ -f "$PLATFORM_DIR/rush.json" ]]; then
-    local pod_name
-    pod_name="$(basename "$context")"
-    local rush_project="@hcengineering/pod-${pod_name}"
+  local pkg_name
+  pkg_name="$(read_package_name "$context")"
+
+  # Try Rush targeted build first when available
+  if [[ -f "$PLATFORM_DIR/rush.json" && -n "$pkg_name" ]]; then
     pushd "$PLATFORM_DIR" >/dev/null
-    npx -y @microsoft/rush build -t "$rush_project" || true
+    npx -y @microsoft/rush build -t "$pkg_name" || true
     popd >/dev/null
-    pushd "$context" >/dev/null
-    npx -y @microsoft/rushx bundle || true
-    popd >/dev/null
-  else
-    # Fallback: try building with the detected package manager
+    # Try rushx inside the package for bundle/build
+    local rushx_js
+    rushx_js="$(find_rushx_script "$context")" || true
+    if [[ -n "$rushx_js" ]]; then
+      if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
+        (cd "$context" && node "$rushx_js" bundle) || true
+      fi
+      if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
+        (cd "$context" && node "$rushx_js" build) || true
+      fi
+    fi
+  fi
+
+  # Fallback: try building with the detected package manager directly in the context
+  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
     local pm
     pm="$(choose_package_manager "$context")"
-
-    # Enable corepack for pnpm/yarn if available
     if command -v corepack >/dev/null 2>&1; then
       corepack enable >/dev/null 2>&1 || true
       if [[ "$pm" == "pnpm" ]]; then
@@ -181,38 +214,52 @@ ensure_bundle_if_needed() {
         corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
       fi
     fi
-
     pushd "$context" >/dev/null
     export CI=1
     export NODE_OPTIONS="--max-old-space-size=4096"
+    export HUSKY=0
     case "$pm" in
       pnpm)
         (pnpm install --frozen-lockfile || pnpm install) || true
-        (pnpm run build || pnpm run bundle) || true
+        if [[ "$needs_bundle" == true ]]; then (pnpm run bundle || pnpm run build) || true; fi
+        if [[ "$needs_lib" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
         ;;
       yarn)
         (yarn install --frozen-lockfile || yarn install) || true
-        (yarn build || yarn bundle) || true
+        if [[ "$needs_bundle" == true ]]; then (yarn bundle || yarn build) || true; fi
+        if [[ "$needs_lib" == true ]]; then (yarn build || yarn compile) || true; fi
         ;;
       npm)
-        (npm ci || npm install --no-audit --no-fund) || true
-        (npm run build || npm run bundle) || true
+        (npm install --no-audit --no-fund) || true
+        if [[ "$needs_bundle" == true ]]; then (npm run bundle || npm run build) || true; fi
+        if [[ "$needs_lib" == true ]]; then (npm run build || npm run compile) || true; fi
         ;;
     esac
     popd >/dev/null
   fi
 
-  # If still missing, try to locate a bundle.js somewhere under context and link/copy it
-  if [[ ! -f "$context/bundle/bundle.js" ]]; then
+  # Final checks and last-resort copy
+  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
     mapfile -t found_bundle < <(find "$context" -type f -name bundle.js | head -n 1)
     if [[ ${#found_bundle[@]} -gt 0 ]]; then
       mkdir -p "$context/bundle"
       cp -f "${found_bundle[0]}" "$context/bundle/bundle.js" || true
     fi
   fi
+  if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
+    # Some repos build into dist/. Accept either and copy if needed
+    if [[ -d "$context/dist" ]]; then
+      cp -r "$context/dist" "$context/lib" || true
+    fi
+  fi
 
-  if [[ ! -f "$context/bundle/bundle.js" ]]; then
+  # If still missing required artifacts, signal failure
+  if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
     echo "Warning: Could not produce $context/bundle/bundle.js. Skipping local build for this service."
+    return 1
+  fi
+  if [[ "$needs_lib" == true && ! -d "$context/lib" ]]; then
+    echo "Warning: Could not produce $context/lib. Skipping local build for this service."
     return 1
   fi
   return 0
