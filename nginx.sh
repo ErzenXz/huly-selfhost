@@ -10,6 +10,7 @@ server {
     listen 80;
     server_name _;
     client_max_body_size 100m;
+    resolver 127.0.0.11 ipv6=off valid=10s;
 
     location / {
       proxy_http_version 1.1;
@@ -19,7 +20,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://front:8080;
+      set $u http://front:8080;
+      proxy_pass $u;
     }
 
     location /_accounts {
@@ -30,7 +32,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://account:3000;
+      set $u http://account:3000;
+      proxy_pass $u;
     }
 
     location /_collaborator {
@@ -41,7 +44,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://collaborator:3078;
+      set $u http://collaborator:3078;
+      proxy_pass $u;
     }
 
     location /_transactor {
@@ -52,7 +56,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://transactor:3333;
+      set $u http://transactor:3333;
+      proxy_pass $u;
     }
 
     location /_stats {
@@ -63,7 +68,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://stats:4900;
+      set $u http://stats:4900;
+      proxy_pass $u;
     }
 
     location /_rekoni {
@@ -74,29 +80,8 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://rekoni:4004;
-    }
-
-    location /_love {
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://love:8096;
-    }
-
-    location /aibot {
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "upgrade";
-      proxy_set_header Host $host;
-      proxy_set_header X-Real-IP $remote_addr;
-      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-      proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://aibot:4010;
+      set $u http://rekoni:4004;
+      proxy_pass $u;
     }
 
     location /files {
@@ -107,8 +92,48 @@ server {
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
-      proxy_pass http://minio:9000;
+      set $u http://minio:9000;
+      proxy_pass $u;
     }
+NGINX
+
+# Optional blocks: only include if the services are enabled via compose profiles
+if echo ",$COMPOSE_PROFILES," | grep -q ",love,"; then
+cat >> .huly.nginx <<'NGINX'
+
+    location /_love {
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      set $u http://love:8096;
+      proxy_pass $u;
+    }
+NGINX
+fi
+
+if echo ",$COMPOSE_PROFILES," | grep -q ",aibot,"; then
+cat >> .huly.nginx <<'NGINX'
+
+    location /aibot {
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      set $u http://aibot:4010;
+      proxy_pass $u;
+    }
+NGINX
+fi
+
+# Close server block
+cat >> .huly.nginx <<'NGINX'
 }
 NGINX
 
