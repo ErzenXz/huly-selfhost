@@ -121,7 +121,8 @@ if [[ -n "$BUILD_REPO" || -n "$BUILD_PATH" ]]; then
     if [[ -n "$BUILD_REGISTRY_PREFIX" ]]; then
         BUILD_ARGS+=("--registry" "$BUILD_REGISTRY_PREFIX")
     fi
-    bash scripts/build-from-source.sh "${BUILD_ARGS[@]}"
+    # Always build fresh with unique tags to avoid stale images
+    bash scripts/build-from-source.sh --no-cache "${BUILD_ARGS[@]}"
     if [[ -f .images.conf ]]; then
         echo "Loading built image overrides from .images.conf"
         set -a
@@ -297,20 +298,23 @@ echo -e "Database Volume: \033[1;32m${_VOLUME_DB_PATH:-Docker named volume}\033[
 echo -e "Elasticsearch Volume: \033[1;32m${_VOLUME_ELASTIC_PATH:-Docker named volume}\033[0m"
 echo -e "Files Volume: \033[1;32m${_VOLUME_FILES_PATH:-Docker named volume}\033[0m"
 
-read -p "Do you want to run 'docker compose up -d' now to start Huly? (Y/n): " RUN_DOCKER
+read -p "Do you want to start Huly now (generate nginx and run docker compose)? (Y/n): " RUN_DOCKER
 case "${RUN_DOCKER:-Y}" in
     [Yy]* )
-         echo -e "\033[1;32mRunning 'docker compose up -d' now...\033[0m"
-         if [[ -f .images.conf ]]; then
-           docker compose --env-file .images.conf up -d
-         else
-           docker compose up -d
-         fi
-         ;;
+        echo -e "\033[1;32mGenerating Nginx config (.huly.nginx and nginx.conf)...\033[0m"
+        # Run nginx config generator non-interactively (skip host nginx reload)
+        printf 'n\n' | ./nginx.sh
+
+        echo -e "\033[1;32mPulling/updating images and starting containers...\033[0m"
+        if [[ -f .images.conf ]]; then
+          docker compose --env-file .images.conf pull --ignore-pull-failures || true
+          docker compose --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
+        else
+          docker compose pull --ignore-pull-failures || true
+          docker compose up -d --force-recreate --remove-orphans --pull always
+        fi
+        ;;
     [Nn]* )
-        echo "You can run 'docker compose up -d' later to start Huly."
+        echo "You can run './nginx.sh' and 'docker compose up -d' later to start Huly."
         ;;
 esac
-
-echo -e "\033[1;32mSetup is complete!\n Generating nginx.conf...\033[0m"
-./nginx.sh

@@ -16,6 +16,8 @@ REF=""
 REPO=""
 LOCAL_PATH=""
 REGISTRY_PREFIX=""
+NO_CACHE=false
+TAG_SUFFIX=""
 STATE_FILE="${ROOT_DIR}/.build-source.json"
 
 # -------------------------
@@ -72,6 +74,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --registry)
       REGISTRY_PREFIX="$2"
+      shift 2
+      ;;
+    --no-cache)
+      NO_CACHE=true
+      shift
+      ;;
+    --tag-suffix=*)
+      TAG_SUFFIX="${1#*=}"
+      shift
+      ;;
+    --tag-suffix)
+      TAG_SUFFIX="$2"
       shift 2
       ;;
     --help)
@@ -457,7 +471,11 @@ build_service_image() {
   done
 
   echo "Building $svc from $context using minimal context at $tmp_ctx_dir as $tag_base"
-  docker build -t "$tag_base" -f "$tmp_ctx_dir/Dockerfile" "$tmp_ctx_dir"
+  if [[ "$NO_CACHE" == true ]]; then
+    docker build --no-cache --pull -t "$tag_base" -f "$tmp_ctx_dir/Dockerfile" "$tmp_ctx_dir"
+  else
+    docker build -t "$tag_base" -f "$tmp_ctx_dir/Dockerfile" "$tmp_ctx_dir"
+  fi
 }
 
 #!/usr/bin/env bash
@@ -552,6 +570,8 @@ IMAGES_FILE="${ROOT_DIR}/.images.conf"
 > "$IMAGES_FILE"
 :
 
+BUILD_TAG_SUFFIX="${TAG_SUFFIX:-$(date -u +%Y%m%d%H%M%S)}"
+
 for svc in account front collaborator transactor workspace fulltext stats rekoni love aibot; do
   :
   context="$(discover_context_for_service "$svc" || true)"
@@ -561,7 +581,7 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
       :
     continue
     }
-    tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local"
+    tag_base="${REGISTRY_PREFIX:+${REGISTRY_PREFIX}/}huly/${svc}:local-${BUILD_TAG_SUFFIX}"
     build_service_image "$svc" "$context" "$tag_base"
     case "$svc" in
       rekoni)    echo "IMAGE_REKONI=$tag_base" >> "$IMAGES_FILE" ;;
