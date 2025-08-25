@@ -223,6 +223,32 @@ read_package_name() {
   fi
 }
 
+# Helper: locate a browser SPA output for front (index.html present)
+find_front_spa_dist() {
+  local root="$1"
+  # Prefer apps/front then pods/front then server/front; prefer dist then build then out
+  local search_paths=(
+    "$root/apps/front/dist" "$root/apps/front/build" "$root/apps/front/out"
+    "$root/pods/front/dist" "$root/pods/front/build" "$root/pods/front/out"
+    "$root/server/front/dist" "$root/server/front/build" "$root/server/front/out"
+  )
+  for d in "${search_paths[@]}"; do
+    if [[ -f "$d/index.html" ]]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  # Fallback: generic search (limit to first 5 to avoid huge lists)
+  mapfile -t found < <(find "$root" -type f -name index.html \
+    | grep -E '/(apps|pods|server)/front/(dist|build|out)/index.html' \
+    | head -n 5)
+  if [[ ${#found[@]} -gt 0 ]]; then
+    dirname "${found[0]}"
+    return 0
+  fi
+  return 1
+}
+
 # Helper: best-effort copy of an alternative artifact source into the context
 copy_alt_artifact_dir() {
   local src_dir="$1"
@@ -498,15 +524,42 @@ build_service_image() {
     fi
   fi
   if [[ "$needs_dist" == true ]]; then
-    if [[ -d "$context/dist" ]]; then
-      cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
-    elif [[ -d "$context/lib" ]]; then
-      # Map lib as dist if only lib exists
-      cp -r "$context/lib" "$tmp_ctx_dir/dist" || true
-    elif [[ -d "$context/build" ]]; then
-      cp -r "$context/build" "$tmp_ctx_dir/dist" || true
-    elif [[ -d "$context/out" ]]; then
-      cp -r "$context/out" "$tmp_ctx_dir/dist" || true
+    if [[ "$svc" == "front" ]]; then
+      # For front, prefer SPA assets with index.html from anywhere in the repo
+      local spa_dir=""
+      if [[ -n "$FRONT_DIST_PATH" && -f "$FRONT_DIST_PATH/index.html" ]]; then
+        spa_dir="$FRONT_DIST_PATH"
+      else
+        spa_dir="$(find_front_spa_dist "$PLATFORM_DIR" || true)"
+        if [[ -z "$spa_dir" ]]; then
+          # Try to generate SPA via rush bundle/package and search again
+          pushd "$PLATFORM_DIR" >/dev/null
+          npx -y @microsoft/rush bundle || true
+          npx -y @microsoft/rush package || true
+          popd >/dev/null
+          spa_dir="$(find_front_spa_dist "$PLATFORM_DIR" || true)"
+        fi
+      fi
+      if [[ -n "$spa_dir" && -f "$spa_dir/index.html" ]]; then
+        cp -r "$spa_dir" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/dist" ]]; then
+        cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/build" ]]; then
+        cp -r "$context/build" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/out" ]]; then
+        cp -r "$context/out" "$tmp_ctx_dir/dist" || true
+      fi
+    else
+      if [[ -d "$context/dist" ]]; then
+        cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/lib" ]]; then
+        # Map lib as dist if only lib exists
+        cp -r "$context/lib" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/build" ]]; then
+        cp -r "$context/build" "$tmp_ctx_dir/dist" || true
+      elif [[ -d "$context/out" ]]; then
+        cp -r "$context/out" "$tmp_ctx_dir/dist" || true
+      fi
     fi
   fi
   # Even if Dockerfile does not explicitly copy dist, include it in the context if available
