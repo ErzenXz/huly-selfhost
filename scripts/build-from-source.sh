@@ -601,8 +601,6 @@ for svc in account front collaborator transactor workspace fulltext stats rekoni
   :
 done
 
-popd >/dev/null
-
 echo "Written image overrides to $IMAGES_FILE"
 echo "To use with compose: docker compose --env-file .images.conf up -d"
 echo -e "${color_yellow}Build completed. Images are ready.${color_reset}"
