@@ -55,14 +55,14 @@ fi
 
 # Prefer passing env files explicitly so compose has all variables
 if [[ -f .images.conf && -f huly.conf ]]; then
-  docker compose --env-file huly.conf --env-file .images.conf pull --ignore-pull-failures || true
-  docker compose --env-file huly.conf --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
+  # When using locally built images from .images.conf, do not force pull (those tags don't exist remotely)
+  docker compose --env-file huly.conf --env-file .images.conf up -d --force-recreate --remove-orphans
 elif [[ -f huly.conf ]]; then
   docker compose --env-file huly.conf pull --ignore-pull-failures || true
   docker compose --env-file huly.conf up -d --force-recreate --remove-orphans --pull always
 elif [[ -f .images.conf ]]; then
-  docker compose --env-file .images.conf pull --ignore-pull-failures || true
-  docker compose --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
+  # No huly.conf but overrides present – don't force pull local tags
+  docker compose --env-file .images.conf up -d --force-recreate --remove-orphans
 else
   docker compose pull --ignore-pull-failures || true
   docker compose up -d --force-recreate --remove-orphans --pull always

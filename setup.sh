@@ -307,8 +307,8 @@ case "${RUN_DOCKER:-Y}" in
 
         echo -e "\033[1;32mPulling/updating images and starting containers...\033[0m"
         if [[ -f .images.conf ]]; then
-          docker compose --env-file huly.conf --env-file .images.conf pull --ignore-pull-failures || true
-          docker compose --env-file huly.conf --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
+          # Using locally built overrides – do not force pull
+          docker compose --env-file huly.conf --env-file .images.conf up -d --force-recreate --remove-orphans
         else
           docker compose --env-file huly.conf pull --ignore-pull-failures || true
           docker compose --env-file huly.conf up -d --force-recreate --remove-orphans --pull always
