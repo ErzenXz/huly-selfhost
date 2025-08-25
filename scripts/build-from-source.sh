@@ -525,6 +525,18 @@ build_service_image() {
         echo 'COPY ./dist /app/dist' >> "$tmp_ctx_dir/Dockerfile"
       fi
     fi
+    # If bundle exists, ensure it's copied under /app/dist/bundle so the fallback index can load it
+    if [[ -f "$tmp_ctx_dir/bundle/bundle.js" ]]; then
+      if ! grep -Eq 'COPY\s+\.?/bundle(\s|$)|COPY\s+\./bundle(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+        if grep -Eq 'COPY\s+\.?/dist(\s|$)|COPY\s+\./dist(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+          sed -i -E '/COPY\s+\.?\/dist(\s|$)|COPY\s+\.\/dist(\s|$)/a COPY ./bundle /app/dist/bundle' "$tmp_ctx_dir/Dockerfile"
+        elif grep -Eq '^(CMD|ENTRYPOINT)\b' "$tmp_ctx_dir/Dockerfile"; then
+          sed -i -E '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/bundle \/app\/dist\/bundle\n\1/' "$tmp_ctx_dir/Dockerfile"
+        else
+          echo 'COPY ./bundle /app/dist/bundle' >> "$tmp_ctx_dir/Dockerfile"
+        fi
+      fi
+    fi
   fi
   if [[ "$needs_lib" == true && -d "$context/lib" ]]; then
     cp -r "$context/lib" "$tmp_ctx_dir/lib" || true
