@@ -18,6 +18,7 @@ LOCAL_PATH=""
 REGISTRY_PREFIX=""
 NO_CACHE=false
 TAG_SUFFIX=""
+FRONT_DIST_PATH=""
 STATE_FILE="${ROOT_DIR}/.build-source.json"
 
 # -------------------------
@@ -86,6 +87,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --tag-suffix)
       TAG_SUFFIX="$2"
+      shift 2
+      ;;
+    --front-dist=*)
+      FRONT_DIST_PATH="${1#*=}"
+      shift
+      ;;
+    --front-dist)
+      FRONT_DIST_PATH="$2"
       shift 2
       ;;
     --help)
@@ -331,6 +340,14 @@ ensure_bundle_if_needed() {
     fi
   fi
 
+  # If this looks like a front context and dist is still missing, try repo-wide bundle/package
+  if [[ "$context" =~ /front(/|$) && -f "$PLATFORM_DIR/rush.json" && ! -d "$context/dist" ]]; then
+    pushd "$PLATFORM_DIR" >/dev/null
+    npx -y @microsoft/rush bundle || true
+    npx -y @microsoft/rush package || true
+    popd >/dev/null
+  fi
+
   # Fallback: try building with the detected package manager directly in the context
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]] || [[ "$needs_dist" == true && ! -d "$context/dist" ]] || [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
     local pm
@@ -412,6 +429,13 @@ ensure_bundle_if_needed() {
     fi
   fi
 
+  # Extra fallback for front: if dist/index.html is missing but bundle exists, create a minimal index.html
+  if echo "$context" | grep -Eq "/front(/|$)"; then
+    if [[ -f "$context/bundle/bundle.js" && ! -f "$context/dist/index.html" ]]; then
+      create_minimal_index_html "$context" || true
+    fi
+  fi
+
   # If still missing required artifacts, signal failure
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
     echo "Warning: Could not produce $context/bundle/bundle.js. Skipping local build for this service."
@@ -457,6 +481,12 @@ build_service_image() {
   if grep -qE 'COPY\s+\./lib(\s|$)|COPY\s+lib(\s|$)' "$dockerfile"; then needs_lib=true; fi
 
   # Populate artifacts
+  # If front and explicit dist path provided, copy it in first
+  if [[ "$svc" == "front" && -n "$FRONT_DIST_PATH" && -f "$FRONT_DIST_PATH/index.html" ]]; then
+    mkdir -p "$context/dist"
+    rm -rf "$context/dist"
+    cp -r "$FRONT_DIST_PATH" "$context/dist"
+  fi
   if [[ "$needs_bundle" == true && -f "$context/bundle/bundle.js" ]]; then
     mkdir -p "$tmp_ctx_dir/bundle"
     cp -f "$context/bundle/bundle.js" "$tmp_ctx_dir/bundle/" || true
