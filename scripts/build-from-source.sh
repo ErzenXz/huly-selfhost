@@ -483,6 +483,19 @@ build_service_image() {
   if [[ -d "$context/dist" && ! -d "$tmp_ctx_dir/dist" ]]; then
     cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
   fi
+
+  # Ensure front image always contains static assets if we have them
+  if [[ "$svc" == "front" && -f "$tmp_ctx_dir/dist/index.html" ]]; then
+    if ! grep -Eq 'COPY\s+\.?/dist(\s|$)|COPY\s+\./dist(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+      if grep -Eq 'COPY\s+\.?/lib(\s|$)|COPY\s+\./lib(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+        sed -i -E '/COPY\s+\.?\/lib(\s|$)|COPY\s+\.\/lib(\s|$)/a COPY ./dist /app/dist' "$tmp_ctx_dir/Dockerfile"
+      elif grep -Eq '^(CMD|ENTRYPOINT)\b' "$tmp_ctx_dir/Dockerfile"; then
+        sed -i -E '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/dist \/app\/dist\n\1/' "$tmp_ctx_dir/Dockerfile"
+      else
+        echo 'COPY ./dist /app/dist' >> "$tmp_ctx_dir/Dockerfile"
+      fi
+    fi
+  fi
   if [[ "$needs_lib" == true && -d "$context/lib" ]]; then
     cp -r "$context/lib" "$tmp_ctx_dir/lib" || true
   fi
@@ -511,7 +524,7 @@ SERVICE_PATHS[
 ]=apps/account
 SERVICE_PATHS[
   front
-]=apps/front
+]=server/front
 SERVICE_PATHS[
   collaborator
 ]=apps/collaborator
