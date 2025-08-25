@@ -321,7 +321,9 @@ ensure_bundle_if_needed() {
         (cd "$context" && node "$rushx_js" build) || true
       fi
       if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
-        (cd "$context" && node "$rushx_js" build) || true
+        (cd "$context" && node "$rushx_js" bundle) || true
+        if [[ ! -d "$context/dist" ]]; then (cd "$context" && node "$rushx_js" package) || true; fi
+        if [[ ! -d "$context/dist" ]]; then (cd "$context" && node "$rushx_js" build) || true; fi
       fi
       if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
         (cd "$context" && node "$rushx_js" bundle) || true
@@ -350,21 +352,21 @@ ensure_bundle_if_needed() {
         (pnpm install --frozen-lockfile || pnpm install) || true
         if [[ "$needs_bundle" == true ]]; then (pnpm run bundle || pnpm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
-        if [[ "$needs_dist" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (pnpm run build || pnpm run bundle || pnpm run package || pnpm run compile) || true; fi
         if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (pnpm run bundle || true); fi
         ;;
       yarn)
         (yarn install --frozen-lockfile || yarn install) || true
         if [[ "$needs_bundle" == true ]]; then (yarn bundle || yarn build) || true; fi
         if [[ "$needs_lib" == true ]]; then (yarn build || yarn compile) || true; fi
-        if [[ "$needs_dist" == true ]]; then (yarn build || yarn compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (yarn build || yarn bundle || yarn package || yarn compile) || true; fi
         if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (yarn bundle || true); fi
         ;;
       npm)
         (npm install --no-audit --no-fund) || true
         if [[ "$needs_bundle" == true ]]; then (npm run bundle || npm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (npm run build || npm run compile) || true; fi
-        if [[ "$needs_dist" == true ]]; then (npm run build || npm run compile) || true; fi
+        if [[ "$needs_dist" == true ]]; then (npm run build || npm run bundle || npm run package || npm run compile) || true; fi
         if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (npm run bundle || true); fi
         ;;
     esac
@@ -476,6 +478,10 @@ build_service_image() {
     elif [[ -d "$context/out" ]]; then
       cp -r "$context/out" "$tmp_ctx_dir/dist" || true
     fi
+  fi
+  # Even if Dockerfile does not explicitly copy dist, include it in the context if available
+  if [[ -d "$context/dist" && ! -d "$tmp_ctx_dir/dist" ]]; then
+    cp -r "$context/dist" "$tmp_ctx_dir/dist" || true
   fi
   if [[ "$needs_lib" == true && -d "$context/lib" ]]; then
     cp -r "$context/lib" "$tmp_ctx_dir/lib" || true
