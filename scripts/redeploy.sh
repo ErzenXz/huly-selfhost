@@ -31,6 +31,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Load deployment configuration so docker compose has variables
+if [[ -f huly.conf ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source huly.conf
+  set +a
+fi
+
+# Ensure required defaults
+export DOCKER_NAME="${DOCKER_NAME:-huly}"
+if [[ -z "${SECRET:-}" && -f .huly.secret ]]; then
+  export SECRET="$(cat .huly.secret)"
+fi
+
 echo "Generating Nginx configs (.huly.nginx and nginx.conf)"
 printf 'n\n' | ./nginx.sh
 
@@ -39,7 +53,14 @@ if [[ "$FROM_SOURCE" == true ]]; then
   bash scripts/build-from-source.sh "${BUILD_ARGS[@]}"
 fi
 
-if [[ -f .images.conf ]]; then
+# Prefer passing env files explicitly so compose has all variables
+if [[ -f .images.conf && -f huly.conf ]]; then
+  docker compose --env-file huly.conf --env-file .images.conf pull --ignore-pull-failures || true
+  docker compose --env-file huly.conf --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
+elif [[ -f huly.conf ]]; then
+  docker compose --env-file huly.conf pull --ignore-pull-failures || true
+  docker compose --env-file huly.conf up -d --force-recreate --remove-orphans --pull always
+elif [[ -f .images.conf ]]; then
   docker compose --env-file .images.conf pull --ignore-pull-failures || true
   docker compose --env-file .images.conf up -d --force-recreate --remove-orphans --pull always
 else

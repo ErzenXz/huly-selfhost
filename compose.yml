@@ -1,4 +1,4 @@
-name: ${DOCKER_NAME}
+name: ${DOCKER_NAME:-huly}
 services:
   nginx:
     image: "nginx:1.21.3"
