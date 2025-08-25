@@ -166,10 +166,10 @@ if [[ -f "rush.json" ]]; then
   fi
     npx -y @microsoft/rush purge || true
     npx -y @microsoft/rush install
-    # Build front first if present to ensure dist assets exist
+    # Build front first if present to ensure dist assets exist (use rush runner, not rushx)
     if [[ -d "apps/front" || -d "server/front" || -d "pods/front" ]]; then
-      if [[ -f "common/scripts/install-run-rushx.js" ]]; then
-        node common/scripts/install-run-rushx.js build -t front || true
+      if [[ -f "common/scripts/install-run-rush.js" ]]; then
+        node common/scripts/install-run-rush.js build -t front || true
       fi
     fi
     npx -y @microsoft/rush build
