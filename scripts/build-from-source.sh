@@ -166,6 +166,12 @@ if [[ -f "rush.json" ]]; then
   fi
     npx -y @microsoft/rush purge || true
     npx -y @microsoft/rush install
+    # Build front first if present to ensure dist assets exist
+    if [[ -d "apps/front" || -d "server/front" || -d "pods/front" ]]; then
+      if [[ -f "common/scripts/install-run-rushx.js" ]]; then
+        node common/scripts/install-run-rushx.js build -t front || true
+      fi
+    fi
     npx -y @microsoft/rush build
 fi
 popd >/dev/null
@@ -233,11 +239,16 @@ populate_dist_assets() {
     "$PLATFORM_DIR/server/front/dist"
     "$PLATFORM_DIR/apps/front/dist"
     "$PLATFORM_DIR/pods/front/dist"
+    "$PLATFORM_DIR/server/front/build"
+    "$PLATFORM_DIR/apps/front/build"
+    "$PLATFORM_DIR/pods/front/build"
+    "$PLATFORM_DIR/server/front/out"
+    "$PLATFORM_DIR/apps/front/out"
+    "$PLATFORM_DIR/pods/front/out"
   )
   # Fallback: any dist with index.html under repo
-  if [[ ${#candidates[@]} -eq 0 ]]; then
-    mapfile -t candidates < <(find "$PLATFORM_DIR" -type f -name index.html -path "*/dist/index.html" -printf '%h\n' | sort -u)
-  fi
+  mapfile -t more_candidates < <(find "$PLATFORM_DIR" -type f -name index.html \( -path "*/dist/index.html" -o -path "*/build/index.html" -o -path "*/out/index.html" \) -printf '%h\n' | sort -u | head -n 10)
+  candidates+=("${more_candidates[@]}")
   for d in "${candidates[@]}"; do
     if [[ -d "$d" && -f "$d/index.html" ]]; then
       mkdir -p "$target_dist"
@@ -375,6 +386,9 @@ ensure_bundle_if_needed() {
   if [[ "$needs_dist" == true && ! -d "$context/dist" ]]; then
     # Some repos build into lib/. Accept either and copy if needed
     copy_alt_artifact_dir "$context/lib" "$context/dist" || true
+    # Also accept build/ and out/
+    if [[ ! -d "$context/dist" ]]; then copy_alt_artifact_dir "$context/build" "$context/dist" || true; fi
+    if [[ ! -d "$context/dist" ]]; then copy_alt_artifact_dir "$context/out" "$context/dist" || true; fi
     # As a stronger fallback, search repo for a suitable dist with index.html
     if [[ ! -f "$context/dist/index.html" ]]; then
       populate_dist_assets "$context" || true
@@ -457,6 +471,10 @@ build_service_image() {
     elif [[ -d "$context/lib" ]]; then
       # Map lib as dist if only lib exists
       cp -r "$context/lib" "$tmp_ctx_dir/dist" || true
+    elif [[ -d "$context/build" ]]; then
+      cp -r "$context/build" "$tmp_ctx_dir/dist" || true
+    elif [[ -d "$context/out" ]]; then
+      cp -r "$context/out" "$tmp_ctx_dir/dist" || true
     fi
   fi
   if [[ "$needs_lib" == true && -d "$context/lib" ]]; then
