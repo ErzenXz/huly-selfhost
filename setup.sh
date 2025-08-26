@@ -272,6 +272,10 @@ if [[ "${_ENABLE_AIBOT,,}" == "y" ]]; then
   export AI_BOT_PASSWORD="${_AI_BOT_PASSWORD}"
   export AI_URL="http${_SECURE:+s}://${_HOST_ADDRESS}/aibot"
   export AI_BOT_URL="http://aibot:4010"
+  # Ensure aibot profile is enabled in compose
+  if [[ ",${COMPOSE_PROFILES:-}," != *",aibot,"* ]]; then
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}aibot"
+  fi
 fi
 
 read -p "Enable Love (LiveKit) service? (y/N): " _ENABLE_LOVE
@@ -282,6 +286,10 @@ if [[ "${_ENABLE_LOVE,,}" == "y" ]]; then
   export LIVEKIT_HOST="${_LIVEKIT_HOST}"
   export LIVEKIT_API_KEY="${_LIVEKIT_API_KEY}"
   export LIVEKIT_API_SECRET="${_LIVEKIT_API_SECRET}"
+  # Ensure love profile is enabled in compose
+  if [[ ",${COMPOSE_PROFILES:-}," != *",love,"* ]]; then
+    export COMPOSE_PROFILES="${COMPOSE_PROFILES:+$COMPOSE_PROFILES,}love"
+  fi
 fi
 
 envsubst < .template.huly.conf > $CONFIG_FILE

@@ -56,6 +56,9 @@ services:
 
   transactor:
     image: ${IMAGE_TRANSACTOR:-hardcoreeng/transactor:${HULY_VERSION}}
+    depends_on:
+      kafka:
+        condition: service_healthy
     environment:
       - SERVER_PORT=3333
       - SERVER_SECRET=${SECRET}
@@ -94,11 +97,24 @@ services:
       - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
       - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
       - ALLOW_PLAINTEXT_LISTENER=yes
       - KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
       - KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1
     restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/opt/bitnami/kafka/bin/kafka-topics.sh",
+          "--bootstrap-server",
+          "localhost:9092",
+          "--list",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
 
   account:
     image: ${IMAGE_ACCOUNT:-hardcoreeng/account:${HULY_VERSION}}
@@ -119,6 +135,9 @@ services:
 
   workspace:
     image: ${IMAGE_WORKSPACE:-hardcoreeng/workspace:${HULY_VERSION}}
+    depends_on:
+      kafka:
+        condition: service_healthy
     environment:
       - SERVER_SECRET=${SECRET}
       - DB_URL=mongodb://mongodb:27017
