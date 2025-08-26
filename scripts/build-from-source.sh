@@ -393,38 +393,49 @@ ensure_bundle_if_needed() {
     popd >/dev/null
   fi
 
-  # Front-specific fallback: try building dev/prod SPA directly to produce dist
-  if [[ "$context" =~ /front(/|$) && ! -d "$context/dist" && -d "$PLATFORM_DIR/dev/prod" ]]; then
-    local pm_dev
-    pm_dev="$(choose_package_manager "$PLATFORM_DIR/dev/prod")"
-    if command -v corepack >/dev/null 2>&1; then
-      corepack enable >/dev/null 2>&1 || true
-      if [[ "$pm_dev" == "pnpm" ]]; then
-        corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
-      elif [[ "$pm_dev" == "yarn" ]]; then
-        corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+  # Front-specific: prefer real SPA from dev/prod. Build it when missing or when context/dist looks like the minimal fallback.
+  if [[ "$context" =~ /front(/|$) && -d "$PLATFORM_DIR/dev/prod" ]]; then
+    local need_prod=false
+    if [[ ! -f "$PLATFORM_DIR/dev/prod/dist/index.html" ]]; then
+      need_prod=true
+    fi
+    if [[ -f "$context/dist/index.html" ]]; then
+      if grep -q '/bundle/bundle.js' "$context/dist/index.html" 2>/dev/null; then
+        need_prod=true
       fi
     fi
-    pushd "$PLATFORM_DIR/dev/prod" >/dev/null
-    export CI=1
-    export NODE_OPTIONS="--max-old-space-size=4096"
-    export HUSKY=0
-    case "$pm_dev" in
-      pnpm)
-        (pnpm install --frozen-lockfile || pnpm install) || true
-        (pnpm run package) || true
-        ;;
-      yarn)
-        (yarn install --frozen-lockfile || yarn install) || true
-        (yarn package) || true
-        ;;
-      npm)
-        (npm install --no-audit --no-fund) || true
-        (npm run package) || true
-        ;;
-    esac
-    popd >/dev/null
-    if [[ -d "$PLATFORM_DIR/dev/prod/dist" ]]; then
+    if [[ "$need_prod" == true ]]; then
+      local pm_dev
+      pm_dev="$(choose_package_manager "$PLATFORM_DIR/dev/prod")"
+      if command -v corepack >/dev/null 2>&1; then
+        corepack enable >/dev/null 2>&1 || true
+        if [[ "$pm_dev" == "pnpm" ]]; then
+          corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+        elif [[ "$pm_dev" == "yarn" ]]; then
+          corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+        fi
+      fi
+      pushd "$PLATFORM_DIR/dev/prod" >/dev/null
+      export CI=1
+      export NODE_OPTIONS="--max-old-space-size=4096"
+      export HUSKY=0
+      case "$pm_dev" in
+        pnpm)
+          (pnpm install --frozen-lockfile || pnpm install) || true
+          (pnpm run package) || true
+          ;;
+        yarn)
+          (yarn install --frozen-lockfile || yarn install) || true
+          (yarn package) || true
+          ;;
+        npm)
+          (npm install --no-audit --no-fund) || true
+          (npm run package) || true
+          ;;
+      esac
+      popd >/dev/null
+    fi
+    if [[ -f "$PLATFORM_DIR/dev/prod/dist/index.html" ]]; then
       mkdir -p "$context/dist"
       rm -rf "$context/dist"
       cp -r "$PLATFORM_DIR/dev/prod/dist" "$context/dist" || true
