@@ -35,6 +35,23 @@ color_green="\033[1;32m"
 color_yellow="\033[33m"
 color_reset="\033[0m"
 
+sed_inplace() {
+  local script="$1"
+  local file="$2"
+  if command -v gsed >/dev/null 2>&1; then
+    gsed -i -E "$script" "$file"
+  else
+    case "$(uname -s)" in
+      Darwin)
+        sed -i '' -E "$script" "$file"
+        ;;
+      *)
+        sed -i -E "$script" "$file"
+        ;;
+    esac
+  fi
+}
+
 progress_step_start() {
   :
 }
@@ -228,6 +245,7 @@ find_front_spa_dist() {
   local root="$1"
   # Prefer apps/front then pods/front then server/front; prefer dist then build then out
   local search_paths=(
+    "$root/dev/prod/dist"
     "$root/apps/front/dist" "$root/apps/front/build" "$root/apps/front/out"
     "$root/pods/front/dist" "$root/pods/front/build" "$root/pods/front/out"
     "$root/server/front/dist" "$root/server/front/build" "$root/server/front/out"
@@ -271,6 +289,7 @@ populate_dist_assets() {
   fi
   # Prefer well-known locations
   local candidates=(
+    "$PLATFORM_DIR/dev/prod/dist"
     "$PLATFORM_DIR/server/front/dist"
     "$PLATFORM_DIR/apps/front/dist"
     "$PLATFORM_DIR/pods/front/dist"
@@ -374,6 +393,44 @@ ensure_bundle_if_needed() {
     popd >/dev/null
   fi
 
+  # Front-specific fallback: try building dev/prod SPA directly to produce dist
+  if [[ "$context" =~ /front(/|$) && ! -d "$context/dist" && -d "$PLATFORM_DIR/dev/prod" ]]; then
+    local pm_dev
+    pm_dev="$(choose_package_manager "$PLATFORM_DIR/dev/prod")"
+    if command -v corepack >/dev/null 2>&1; then
+      corepack enable >/dev/null 2>&1 || true
+      if [[ "$pm_dev" == "pnpm" ]]; then
+        corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+      elif [[ "$pm_dev" == "yarn" ]]; then
+        corepack prepare yarn@stable --activate >/dev/null 2>&1 || true
+      fi
+    fi
+    pushd "$PLATFORM_DIR/dev/prod" >/dev/null
+    export CI=1
+    export NODE_OPTIONS="--max-old-space-size=4096"
+    export HUSKY=0
+    case "$pm_dev" in
+      pnpm)
+        (pnpm install --frozen-lockfile || pnpm install) || true
+        (pnpm run package) || true
+        ;;
+      yarn)
+        (yarn install --frozen-lockfile || yarn install) || true
+        (yarn package) || true
+        ;;
+      npm)
+        (npm install --no-audit --no-fund) || true
+        (npm run package) || true
+        ;;
+    esac
+    popd >/dev/null
+    if [[ -d "$PLATFORM_DIR/dev/prod/dist" ]]; then
+      mkdir -p "$context/dist"
+      rm -rf "$context/dist"
+      cp -r "$PLATFORM_DIR/dev/prod/dist" "$context/dist" || true
+    fi
+  fi
+
   # Fallback: try building with the detected package manager directly in the context
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]] || [[ "$needs_lib" == true && ! -d "$context/lib" ]] || [[ "$needs_dist" == true && ! -d "$context/dist" ]] || [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
     local pm
@@ -438,10 +495,6 @@ ensure_bundle_if_needed() {
     if [[ ! -f "$context/dist/index.html" ]]; then
       populate_dist_assets "$context" || true
     fi
-    # Last resort: generate a minimal index.html that loads the bundle
-    if [[ ! -f "$context/dist/index.html" && -f "$context/bundle/bundle.js" ]]; then
-      create_minimal_index_html "$context" || true
-    fi
   fi
   if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then
     # Try to locate model.json within context or repo
@@ -455,12 +508,7 @@ ensure_bundle_if_needed() {
     fi
   fi
 
-  # Extra fallback for front: if dist/index.html is missing but bundle exists, create a minimal index.html
-  if echo "$context" | grep -Eq "/front(/|$)"; then
-    if [[ -f "$context/bundle/bundle.js" && ! -f "$context/dist/index.html" ]]; then
-      create_minimal_index_html "$context" || true
-    fi
-  fi
+  # Do not auto-generate a minimal index for front; require real SPA assets
 
   # If still missing required artifacts, signal failure
   if [[ "$needs_bundle" == true && ! -f "$context/bundle/bundle.js" ]]; then
@@ -569,11 +617,11 @@ build_service_image() {
 
   # Ensure front image always contains static assets if we have them
   if [[ "$svc" == "front" && -f "$tmp_ctx_dir/dist/index.html" ]]; then
-    if ! grep -Eq 'COPY\s+\.?/dist(\s|$)|COPY\s+\./dist(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+    if ! grep -Eq 'COPY\s+(\.?/)?dist(/?|\s|$)' "$tmp_ctx_dir/Dockerfile"; then
       if grep -Eq 'COPY\s+\.?/lib(\s|$)|COPY\s+\./lib(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
-        sed -i -E '/COPY\s+\.?\/lib(\s|$)|COPY\s+\.\/lib(\s|$)/a COPY ./dist /app/dist' "$tmp_ctx_dir/Dockerfile"
+        sed_inplace '/COPY\s+\.?\/lib(\s|$)|COPY\s+\.\/lib(\s|$)/a COPY .\/dist \/app\/dist' "$tmp_ctx_dir/Dockerfile"
       elif grep -Eq '^(CMD|ENTRYPOINT)\b' "$tmp_ctx_dir/Dockerfile"; then
-        sed -i -E '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/dist \/app\/dist\n\1/' "$tmp_ctx_dir/Dockerfile"
+        sed_inplace '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/dist \/app\/dist\n\1/' "$tmp_ctx_dir/Dockerfile"
       else
         echo 'COPY ./dist /app/dist' >> "$tmp_ctx_dir/Dockerfile"
       fi
@@ -581,10 +629,10 @@ build_service_image() {
     # If bundle exists, ensure it's copied under /app/dist/bundle so the fallback index can load it
     if [[ -f "$tmp_ctx_dir/bundle/bundle.js" ]]; then
       if ! grep -Eq 'COPY\s+\.?/bundle(\s|$)|COPY\s+\./bundle(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
-        if grep -Eq 'COPY\s+\.?/dist(\s|$)|COPY\s+\./dist(\s|$)' "$tmp_ctx_dir/Dockerfile"; then
-          sed -i -E '/COPY\s+\.?\/dist(\s|$)|COPY\s+\.\/dist(\s|$)/a COPY ./bundle /app/dist/bundle' "$tmp_ctx_dir/Dockerfile"
+        if grep -Eq 'COPY\s+(\.?/)?dist(/?|\s|$)' "$tmp_ctx_dir/Dockerfile"; then
+          sed_inplace '/COPY\s+\.?\/dist(\s|$)|COPY\s+\.\/dist(\s|$)/a COPY .\/bundle \/app\/dist\/bundle' "$tmp_ctx_dir/Dockerfile"
         elif grep -Eq '^(CMD|ENTRYPOINT)\b' "$tmp_ctx_dir/Dockerfile"; then
-          sed -i -E '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/bundle \/app\/dist\/bundle\n\1/' "$tmp_ctx_dir/Dockerfile"
+          sed_inplace '0,/^(CMD|ENTRYPOINT)\b/s//COPY \.\/bundle \/app\/dist\/bundle\n\1/' "$tmp_ctx_dir/Dockerfile"
         else
           echo 'COPY ./bundle /app/dist/bundle' >> "$tmp_ctx_dir/Dockerfile"
         fi
@@ -610,16 +658,14 @@ build_service_image() {
   fi
 }
 
-#!/usr/bin/env bash
-
-# Fallback: attempt to build images from known service subfolders, with discovery
+ # Fallback: attempt to build images from known service subfolders, with discovery
 declare -A SERVICE_PATHS
 SERVICE_PATHS[
   account
 ]=apps/account
 SERVICE_PATHS[
   front
-]=server/front
+]=pods/front
 SERVICE_PATHS[
   collaborator
 ]=apps/collaborator
