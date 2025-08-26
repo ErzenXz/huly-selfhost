@@ -59,6 +59,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      account:
+        condition: service_started
     environment:
       - SERVER_PORT=3333
       - SERVER_SECRET=${SECRET}
@@ -118,6 +120,9 @@ services:
 
   account:
     image: ${IMAGE_ACCOUNT:-hardcoreeng/account:${HULY_VERSION}}
+    depends_on:
+      mongodb:
+        condition: service_started
     environment:
       - SERVER_PORT=3000
       - SERVER_SECRET=${SECRET}
@@ -138,6 +143,10 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      account:
+        condition: service_started
+      transactor:
+        condition: service_started
     environment:
       - SERVER_SECRET=${SECRET}
       - DB_URL=mongodb://mongodb:27017
@@ -190,6 +199,9 @@ services:
 
   stats:
     image: ${IMAGE_STATS:-hardcoreeng/stats:${HULY_VERSION}}
+    depends_on:
+      account:
+        condition: service_started
     environment:
       - PORT=4900
       - SERVER_SECRET=${SECRET}
