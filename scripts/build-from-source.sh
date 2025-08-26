@@ -694,7 +694,7 @@ SERVICE_PATHS[
 ]=apps/collaborator
 SERVICE_PATHS[
   transactor
-]=apps/transactor
+]=pods/server
 SERVICE_PATHS[
   workspace
 ]=apps/workspace
