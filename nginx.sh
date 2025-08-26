@@ -39,7 +39,14 @@ server {
     }
 
     location = /_accounts {
-      return 301 /_accounts/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://account:3000/;
     }
     location /_accounts/ {
       proxy_http_version 1.1;
@@ -66,7 +73,14 @@ server {
     }
 
     location = /_collaborator {
-      return 301 /_collaborator/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://collaborator:3078/;
     }
     location /_collaborator/ {
       proxy_http_version 1.1;
@@ -80,7 +94,14 @@ server {
     }
 
     location = /_transactor {
-      return 301 /_transactor/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://transactor:3333/;
     }
     location /_transactor/ {
       proxy_http_version 1.1;
@@ -94,7 +115,14 @@ server {
     }
 
     location = /_stats {
-      return 301 /_stats/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://stats:4900/;
     }
     location /_stats/ {
       proxy_http_version 1.1;
@@ -109,7 +137,14 @@ server {
 
     # Back-compat: some services use /stats (without underscore)
     location = /stats {
-      return 301 /stats/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://stats:4900/;
     }
     location /stats/ {
       proxy_http_version 1.1;
@@ -123,7 +158,14 @@ server {
     }
 
     location = /_rekoni {
-      return 301 /_rekoni/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://rekoni:4004/;
     }
     location /_rekoni/ {
       proxy_http_version 1.1;
@@ -174,7 +216,14 @@ server {
     }
 
     location = /files {
-      return 301 /files/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_pass http://minio:9000/;
     }
     location /files/ {
       proxy_http_version 1.1;
