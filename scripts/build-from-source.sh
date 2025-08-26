@@ -20,6 +20,7 @@ NO_CACHE=false
 TAG_SUFFIX=""
 FRONT_DIST_PATH=""
 STATE_FILE="${ROOT_DIR}/.build-source.json"
+SKIP_RUSH=false
 
 # -------------------------
 # Progress UI helpers
@@ -118,6 +119,10 @@ while [[ $# -gt 0 ]]; do
       echo "Usage: $0 [--repo URL|--path DIR] [--ref REF] [--registry PREFIX]"
       exit 0
       ;;
+    --skip-rush)
+      SKIP_RUSH=true
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -184,21 +189,27 @@ JSON
 :
 pushd "$PLATFORM_DIR" >/dev/null
 
-if [[ -f "rush.json" ]]; then
+if [[ -f "rush.json" && "$SKIP_RUSH" != true ]]; then
   echo "Detected rush.json; installing dependencies and building the monorepo"
   if ! command -v npm >/dev/null 2>&1; then
     echo "Error: npm not found. Please install Node.js (>=18) and npm, then rerun." >&2
     exit 1
   fi
+    export HUSKY=0
+    export CI=1
+    export npm_config_fund=false
+    export npm_config_audit=false
+    export npm_config_ignore_scripts=true
     npx -y @microsoft/rush purge || true
-    npx -y @microsoft/rush install
+    # Allow scripts during rush install but disable husky via HUSKY=0
+    npm_config_ignore_scripts=false npx -y @microsoft/rush install || true
     # Build front first if present to ensure dist assets exist (use rush runner, not rushx)
     if [[ -d "apps/front" || -d "server/front" || -d "pods/front" ]]; then
       if [[ -f "common/scripts/install-run-rush.js" ]]; then
         node common/scripts/install-run-rush.js build -t front || true
       fi
     fi
-    npx -y @microsoft/rush build
+    npx -y @microsoft/rush build || true
 fi
 popd >/dev/null
 :
@@ -421,15 +432,15 @@ ensure_bundle_if_needed() {
       export HUSKY=0
       case "$pm_dev" in
         pnpm)
-          (pnpm install --frozen-lockfile || pnpm install) || true
+          (pnpm install --frozen-lockfile --ignore-scripts || pnpm install --ignore-scripts) || true
           (pnpm run package) || true
           ;;
         yarn)
-          (yarn install --frozen-lockfile || yarn install) || true
+          (yarn install --frozen-lockfile --ignore-scripts || yarn install --ignore-scripts) || true
           (yarn package) || true
           ;;
         npm)
-          (npm install --no-audit --no-fund) || true
+          (npm install --no-audit --no-fund --ignore-scripts) || true
           (npm run package) || true
           ;;
       esac
@@ -458,23 +469,24 @@ ensure_bundle_if_needed() {
     export CI=1
     export NODE_OPTIONS="--max-old-space-size=4096"
     export HUSKY=0
+    export npm_config_ignore_scripts=true
     case "$pm" in
       pnpm)
-        (pnpm install --frozen-lockfile || pnpm install) || true
+        (pnpm install --frozen-lockfile --ignore-scripts || pnpm install --ignore-scripts) || true
         if [[ "$needs_bundle" == true ]]; then (pnpm run bundle || pnpm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (pnpm run build || pnpm run compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (pnpm run build || pnpm run bundle || pnpm run package || pnpm run compile) || true; fi
         if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (pnpm run bundle || true); fi
         ;;
       yarn)
-        (yarn install --frozen-lockfile || yarn install) || true
+        (yarn install --frozen-lockfile --ignore-scripts || yarn install --ignore-scripts) || true
         if [[ "$needs_bundle" == true ]]; then (yarn bundle || yarn build) || true; fi
         if [[ "$needs_lib" == true ]]; then (yarn build || yarn compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (yarn build || yarn bundle || yarn package || yarn compile) || true; fi
         if [[ "$needs_model_json" == true && ! -f "$context/bundle/model.json" ]]; then (yarn bundle || true); fi
         ;;
       npm)
-        (npm install --no-audit --no-fund) || true
+        (npm install --no-audit --no-fund --ignore-scripts) || true
         if [[ "$needs_bundle" == true ]]; then (npm run bundle || npm run build) || true; fi
         if [[ "$needs_lib" == true ]]; then (npm run build || npm run compile) || true; fi
         if [[ "$needs_dist" == true ]]; then (npm run build || npm run bundle || npm run package || npm run compile) || true; fi
