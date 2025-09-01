@@ -68,13 +68,22 @@ services:
       - DB_URL=mongodb://mongodb:27017
       - MONGO_URL=mongodb://mongodb:27017
       - STORAGE_CONFIG=minio|minio?accessKey=minioadmin&secretKey=minioadmin
-      - FRONT_URL=http://localhost:8087
+      - FRONT_URL=http${SECURE:+s}://${HOST_ADDRESS}
       - ACCOUNTS_URL=http://account:3000
       - FULLTEXT_URL=http://fulltext:4700
       - STATS_URL=http://stats:4900
       - LAST_NAME_FIRST=${LAST_NAME_FIRST:-true}
       - AI_BOT_URL=${AI_BOT_URL:-}
       - QUEUE_CONFIG=kafka:9092
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "const n=require('net');const p=process.env.SERVER_PORT||3333;const s=n.connect({host:'127.0.0.1',port:p});s.setTimeout(2000);s.on('connect',()=>{s.destroy();process.exit(0)});s.on('error',()=>process.exit(1));s.on('timeout',()=>process.exit(1));"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
     restart: unless-stopped
 
   collaborator:
@@ -146,7 +155,7 @@ services:
       account:
         condition: service_started
       transactor:
-        condition: service_started
+        condition: service_healthy
     environment:
       - SERVER_SECRET=${SECRET}
       - DB_URL=mongodb://mongodb:27017
