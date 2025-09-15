@@ -60,7 +60,11 @@ fi
 scripts/build-from-source.sh "${BUILD_ARGS[@]}"
 
 echo "Restarting services (docker compose)"
-if [[ -f "${ROOT_DIR}/.images.conf" ]]; then
+if [[ -f "${ROOT_DIR}/huly.conf" && -f "${ROOT_DIR}/.images.conf" ]]; then
+  docker compose --env-file "${ROOT_DIR}/huly.conf" --env-file "${ROOT_DIR}/.images.conf" up -d --force-recreate
+elif [[ -f "${ROOT_DIR}/huly.conf" ]]; then
+  docker compose --env-file "${ROOT_DIR}/huly.conf" up -d --force-recreate
+elif [[ -f "${ROOT_DIR}/.images.conf" ]]; then
   docker compose --env-file "${ROOT_DIR}/.images.conf" up -d --force-recreate
 else
   docker compose up -d --force-recreate

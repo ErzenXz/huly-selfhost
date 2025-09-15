@@ -259,7 +259,7 @@ fi
 if echo ",$COMPOSE_PROFILES," | grep -q ",aibot,"; then
 cat >> .huly.nginx <<'NGINX'
 
-    location /aibot {
+    location /_aibot {
       proxy_http_version 1.1;
       proxy_set_header Upgrade $http_upgrade;
       proxy_set_header Connection "upgrade";
